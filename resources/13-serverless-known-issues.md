@@ -43,7 +43,7 @@ These issues arise because serverless compute enables ANSI mode by default, whic
   ```
   Fails under ANSI mode.
 - **Root cause:** ANSI mode enabled on serverless rejects invalid type conversions. Empty strings and whitespace-only strings cannot be cast to TIMESTAMP.
-- **Resolution:** Use `try_cast` for proper datatype conversion. Do NOT use `spark.sql.ansi.enabled = false` as a permanent fix -- it is unreliable for INSERT operations. Also remove unsupported SQL commands like `spark.sql('MSCK REPAIR TABLE ETLAuditLog')`.
+- **Resolution:** Use `try_cast` for proper datatype conversion. Do NOT use `spark.sql.ansi.enabled = false` as a permanent fix -- it is unreliable for INSERT operations. Also remove unsupported SQL commands like `spark.sql('MSCK REPAIR TABLE <table_name>')`.
 - **Prevention:** Search codebase for `CAST(` patterns and validate that all source values are valid for the target type. Flag any CAST on string columns that may contain empty strings, whitespace, or placeholder values.
 
 ---
@@ -526,7 +526,7 @@ These issues cover runtime regressions, memory errors, and cost changes observed
 ### Issue 33: Job runtime 2h42m to 5h44m (enrichment job)
 
 - **Environment:** PROD
-- **Job:** `1.3.mFRED_Enrichment_Prod_Serverless` (job `801731365618383`)
+- **Job:** Data enrichment pipeline job (job `801731365618383`)
 - **Root cause:** `PartitionBy` in child notebook writes, no clustering on tables, no statistics on join tables.
 - **Resolution:**
   1. Remove `PartitionBy`
@@ -540,7 +540,7 @@ These issues cover runtime regressions, memory errors, and cost changes observed
 ### Issue 34: RecursionError maximum recursion depth
 
 - **Environment:** PROD
-- **Job:** `RR_wf_dq_13Q_accuracy_all_domains` (job `685602536286187`)
+- **Job:** Data quality accuracy job (job `685602536286187`)
 - **Error message:**
   ```
   RecursionError: maximum recursion depth exceeded
@@ -554,7 +554,7 @@ These issues cover runtime regressions, memory errors, and cost changes observed
 ### Issue 35: Python kernel unresponsive (OOM)
 
 - **Environment:** PROD
-- **Job:** `mFRED L1 jobs` (job `502536177300535`)
+- **Job:** L1 ETL pipeline jobs (job `502536177300535`)
 - **Error message:**
   ```
   Fatal error: The Python kernel is unresponsive. The Python process exited with exit code 137 (SIGKILL: Killed). This may have been caused by an OOM error.
@@ -572,7 +572,7 @@ These issues cover runtime regressions, memory errors, and cost changes observed
 ### Issue 36: Photon out of memory
 
 - **Environment:** UAT
-- **Job:** `azuredatalake_l0_mpcc_nrt_call_data_load` (job `400772929647624`)
+- **Job:** Near real-time call data load job (job `400772929647624`)
 - **Error message:**
   ```
   SparkException: Photon ran out of memory... Photon failed to reserve 768.0 MiB for simdjson internal usage
@@ -586,7 +586,7 @@ These issues cover runtime regressions, memory errors, and cost changes observed
 ### Issue 37: Cost increase -- false alarm
 
 - **Environment:** PROD
-- **Job:** `wf_dq_accuracy_all_domains` (job `704798476678852`)
+- **Job:** Data quality accuracy job (job `704798476678852`)
 - **Symptom:** Cost per run appeared to increase 55%.
 - **Root cause:** Uptick was temporary due to increased data processing volume. Monthly average was comparable to pre-migration levels.
 - **Resolution:** No action required. Analyze system tables over a longer period (at least one full month) before concluding there is a cost increase.
@@ -597,7 +597,7 @@ These issues cover runtime regressions, memory errors, and cost changes observed
 ### Issue 38: SQL job cost higher on serverless general compute
 
 - **Environment:** PROD
-- **Job:** `co_reporting_vendor_workflow_repo` (job `679841779691820`)
+- **Job:** Reporting SQL workflow job (job `679841779691820`)
 - **Root cause:** Pure SQL jobs running on serverless general compute are more expensive than on serverless SQL Warehouse.
 - **Resolution:** Run pure SQL jobs on Serverless SQL Warehouse instead of Serverless General Compute. SQL Warehouse is optimized for SQL workloads and more cost-effective.
 - **Prevention:** During assessment, identify pure SQL jobs (no PySpark, no Python). Route these to SQL Warehouse instead of serverless general compute.
@@ -607,7 +607,7 @@ These issues cover runtime regressions, memory errors, and cost changes observed
 ### Issue 39: Parallelized tasks cost increase
 
 - **Environment:** PROD
-- **Job:** Table_Audit job set (multiple job IDs)
+- **Job:** Table audit job set (multiple job IDs)
 - **Symptom:**
   ```
   Runtime: 2hr on classic -> 7hr on serverless
@@ -626,7 +626,7 @@ These issues cover runtime regressions, memory errors, and cost changes observed
 ### Issue 40: Egress control blocking external endpoints
 
 - **Environment:** PROD
-- **Job:** `CMS_MR_PUF_Parsing` (job `92985562923573`)
+- **Job:** External data parsing job (job `92985562923573`)
 - **Error message:**
   ```
   HTTPSConnectionPool... Failed to establish a new connection: [Errno -3] Temporary failure in name resolution
@@ -640,7 +640,7 @@ These issues cover runtime regressions, memory errors, and cost changes observed
 ### Issue 41: Serverless not enabled in prod workspace
 
 - **Environment:** PROD
-- **Job:** `wf_id_rqsm_ProviderPortalMemberInfo` (job `192796312195994`)
+- **Job:** Provider portal data job (job `192796312195994`)
 - **Error message:** Deployment failed in prod workspace.
 - **Root cause:** Serverless compute was not enabled in the production workspace.
 - **Resolution:** Enable serverless compute in the workspace before deploying jobs.
@@ -671,7 +671,7 @@ These issues involve differences in how serverless compute constructs logical ex
 ### Issue 43: Row filter causing MISSING_ATTRIBUTES error
 
 - **Environment:** UAT
-- **Jobs:** `MP_Recon_L2_Dev` (job `908283765956390`) + `wf_reporting_marketplace_recon` (job `45614751548631`)
+- **Jobs:** Reconciliation L2 job (job `908283765956390`) + reporting reconciliation workflow job (job `45614751548631`)
 - **Error message:**
   ```
   [MISSING_ATTRIBUTES.RESOLVED_ATTRIBUTE_APPEAR_IN_OPERATION] Resolved attribute(s) "part_state", "cim"... missing from...
@@ -685,7 +685,7 @@ These issues involve differences in how serverless compute constructs logical ex
 ### Issue 44: SELECT * with different execution plan
 
 - **Environment:** PROD
-- **Job:** `TransferlogDetails` (job `588637698264566`)
+- **Job:** Transfer log details job (job `588637698264566`)
 - **Error message:** Insert statement erroring with column resolution issues.
 - **Root cause:** Serverless creates logical execution plans differently than classic compute. `SELECT *` can produce different column ordering or resolution behavior.
 - **Resolution:** List all columns explicitly in SQL statements instead of using `SELECT *`.
@@ -700,7 +700,7 @@ These issues involve differences in how serverless compute constructs logical ex
 ### Issue 45: /tmp vs /local_disk0/tmp permissions
 
 - **Environment:** UAT
-- **Job:** `NM_UM_High_Risk_Member_Outbound_Workflow` (job `536134128241835`)
+- **Job:** Outbound data workflow job (job `536134128241835`)
 - **Error message:** Permission denied when writing to `/tmp`.
 - **Root cause:** Serverless compute does not allow writes to `/tmp`. The writable local path is `/local_disk0/tmp`.
 - **Resolution:** Use `/local_disk0/tmp` for all local file operations. Then copy to a Unity Catalog Volume path, then to `abfss://` if needed.
@@ -715,7 +715,7 @@ These issues involve differences in how serverless compute constructs logical ex
 ### Issue 46: VACUUM conflicts with materialized view refresh
 
 - **Environment:** PROD
-- **Job:** `wf_id_rqsm_measure_crosswalk_load_l2_dm` (job `1063132271896440`)
+- **Job:** Measure crosswalk load job (job `1063132271896440`)
 - **Root cause:** Automatic VACUUM (via Predictive Optimization) on managed source tables removes data files that a concurrently running materialized view refresh is still reading.
 - **Resolution:** Use scheduled refreshes for materialized views instead of manual/on-demand refresh. Alternatively, stagger VACUUM and materialized view refresh schedules so they do not overlap.
 - **Prevention:** Identify all materialized views and their source tables. Check whether Predictive Optimization is enabled on source tables. Schedule refreshes to avoid overlap with VACUUM windows.
@@ -743,7 +743,7 @@ These issues involve differences in how serverless compute constructs logical ex
 ### Issue 48: Job ID not retained on JSON update
 
 - **Environment:** UAT
-- **Job:** `wf_reporting_marketplace_enrollment` (job `573685615905816`)
+- **Job:** Reporting enrollment workflow job (job `573685615905816`)
 - **Problem:** Job ID changes when updating workflow JSON through DevOps pipeline, breaking Autosys references and external scheduling dependencies.
 - **Root cause:** The DevOps pipeline was using the Jobs API `create` endpoint, which creates a new job with a new ID, instead of updating the existing job in place.
 - **Resolution:** Use the Jobs API `reset` endpoint (which updates the existing job and preserves the job ID) instead of the `create` endpoint. Review and update the DevOps build and release package.
