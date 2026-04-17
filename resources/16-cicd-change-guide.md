@@ -2,21 +2,21 @@
 
 This guide covers the **repo-side** changes needed when migrating Databricks jobs to serverless compute. This is the second execution track — separate from the Databricks-side notebook changes that Genie Code handles.
 
-**Audience:** Molina's DevOps team and engineers who manage the Azure DevOps pipelines and PowerShell deployment scripts.
+**Audience:** the customer's DevOps team and engineers who manage the Azure DevOps pipelines and PowerShell deployment scripts.
 
 ---
 
 ## Architecture Overview
 
-Molina's deployment flow:
+The customer's deployment flow:
 
 ```
 Azure DevOps Pipeline
   │
-  ├── Variable Group (e.g., EIM_DA_HP_Reporting_UAT)
+  ├── Variable Group (e.g., <Variable_Group_UAT>)
   │   └── Contains: env_name=uat, databricks_cluster, paths, etc.
   │
-  ├── Artifact: Job JSON templates (e.g., wf_hp_reporting_ny_nyher_qa.json)
+  ├── Artifact: Job JSON templates (e.g., <job_name>.json)
   │
   └── PowerShell Script (deploy_report_workflow_jobs.ps1)
       ├── Reads variables from pipeline variable group
@@ -200,13 +200,13 @@ $bodyJson = $bodyJson.Replace("%env_name%","$env_name")
 
 ### Variable Group Changes
 
-The `env_name` variable already exists in Molina's variable groups:
+The `env_name` variable already exists in the customer's variable groups:
 
 | Variable Group | env_name Value |
 |---------------|---------------|
-| EIM_DA_HP_Reporting_DEV | `dev` |
-| EIM_DA_HP_Reporting_UAT | `uat` |
-| EIM_DA_HP_Reporting_PROD | `prod` |
+| <Variable_Group_DEV> | `dev` |
+| <Variable_Group_UAT> | `uat` |
+| <Variable_Group_PROD> | `prod` |
 
 This variable is used to construct the requirements.txt Volume path:
 ```
@@ -224,7 +224,7 @@ Which resolves to:
 
 ## 3. Job ID Retention
 
-**Issue from Molina's log (#9):** Job ID changes when updating workflow JSON through DevOps, breaking Autosys job references.
+**Issue from the customer's log (#9):** Job ID changes when updating workflow JSON through DevOps, breaking Autosys job references.
 
 **Root cause:** The deployment script creates a new job (via `jobs/create`) instead of updating the existing one (via `jobs/reset`).
 

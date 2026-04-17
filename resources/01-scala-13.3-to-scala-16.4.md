@@ -3,7 +3,7 @@
 > **Scope:** Runtime upgrade only. No language change, no serverless migration.
 > **Source:** Databricks Runtime 13.3 LTS (Spark 3.4.1, Scala 2.12.15)
 > **Target:** Databricks Runtime 16.4 LTS (Spark 3.5.x, Scala 2.12.18)
-> **Audience:** Genie Code (automated migration agent) and Molina Healthcare engineers
+> **Audience:** Genie Code (automated migration agent) and the customer engineers
 > **Healthcare Data Warning:** Silent data changes are unacceptable. Every transformation must be validated for data equivalence.
 
 ---
@@ -720,7 +720,7 @@ spark\.conf\.set\s*\(|\.set\s*\(\s*"spark\.|SET\s+spark\.|--\s*SET\s+spark\.
 %sql\s+SET\s|SET\s+spark\.\w|SET\s+hive\.\w|SET\s+mapreduce\.|SET\s+io\.
 ```
 
-**Scan script for Molina notebooks:**
+**Scan script for the customer notebooks:**
 ```scala
 // Run this in a notebook on 16.4 to find problematic configs
 val problematicConfigs = Seq(
@@ -980,7 +980,7 @@ ALTER\s+TABLE.*SET\s+TBLPROPERTIES.*delta\.(enable|columnMapping|min)
 
 ## 6. PySpark-Specific Changes (for Mixed-Language Notebooks)
 
-> Some Molina notebooks contain both `%scala` and `%python` cells. These PySpark changes apply to `%python` cells within Scala notebooks.
+> Some the customer notebooks contain both `%scala` and `%python` cells. These PySpark changes apply to `%python` cells within Scala notebooks.
 
 ### 6.1 Arrow-Based UDF Defaults
 
@@ -2511,5 +2511,5 @@ When using this guide for automated migration, the Genie Code agent should:
 ---
 
 *Last updated: 2026-04-16*
-*Applies to: Molina Healthcare DBR migration project*
+*Applies to: the customer DBR migration project*
 *Path: A (Scala 13.3 LTS -> Scala 16.4 LTS, upgrade only)*

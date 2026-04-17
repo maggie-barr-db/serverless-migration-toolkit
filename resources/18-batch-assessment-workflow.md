@@ -1,8 +1,8 @@
 # Batch Assessment Workflow
 
-Systematic process for assessing and routing batches of 12-100 Databricks jobs for migration across four paths. This is the operational entry point for every migration batch at Molina Healthcare.
+Systematic process for assessing and routing batches of 12-100 Databricks jobs for migration across four paths. This is the operational entry point for every migration batch at the customer.
 
-**Customer context:** Molina Healthcare, ~5000 jobs, Azure Databricks, Azure DevOps CI/CD with PowerShell deployment scripts. Healthcare data -- silent data changes are unacceptable. Molina uses `USE CATALOG {{env}}_catalog` with 2-part table names -- this is correct Unity Catalog usage and must NOT be flagged as non-UC.
+**Customer context:** the customer, ~5000 jobs, Azure Databricks, Azure DevOps CI/CD with PowerShell deployment scripts. Healthcare data -- silent data changes are unacceptable. The customer uses `USE CATALOG {{env}}_catalog` with 2-part table names -- this is correct Unity Catalog usage and must NOT be flagged as non-UC.
 
 **Two execution tracks:**
 1. **Databricks-side** -- notebook code, spark configs, table metadata. Genie Code assesses and assists.
@@ -83,14 +83,14 @@ The manifest is the single input that drives the entire workflow. It can be prov
 
 ```csv
 job_id,job_name,prescribed_path,priority,tower_lead,notes
-545285009490448,wf_ipro_member_sdoh,C,HIGH,Chapman Bradley,claims pipeline
-545285009490449,wf_pharmacy_daily_load,C,HIGH,Chapman Bradley,pharmacy ETL - runs 6am daily
-545285009490450,scala_member_risk_scoring,B,HIGH,Marshall John,Scala ML scoring - needs PySpark conversion
-545285009490451,scala_eligibility_refresh,A,MEDIUM,Marshall John,Scala only - stays on classic 16.4
-545285009490452,sql_claims_summary_report,D,MEDIUM,Chapman Bradley,pure SQL reporting notebook
-545285009490453,wf_provider_network_build,C,LOW,Chapman Bradley,monthly batch - large runtime
-545285009490454,wf_streaming_claims_ingest,C,HIGH,Chapman Bradley,streaming job - needs feasibility check
-545285009490455,gpu_member_embedding_gen,C,MEDIUM,Marshall John,GPU ML runtime - needs evaluation
+545285009490448,sample_claims_pipeline,C,HIGH,Team Lead A,claims pipeline
+545285009490449,sample_pharmacy_etl,C,HIGH,Team Lead A,pharmacy ETL - runs 6am daily
+545285009490450,sample_scala_scoring,B,HIGH,Team Lead B,Scala ML scoring - needs PySpark conversion
+545285009490451,sample_scala_refresh,A,MEDIUM,Team Lead B,Scala only - stays on classic 16.4
+545285009490452,sample_sql_report,D,MEDIUM,Team Lead A,pure SQL reporting notebook
+545285009490453,sample_provider_build,C,LOW,Team Lead A,monthly batch - large runtime
+545285009490454,sample_streaming_ingest,C,HIGH,Team Lead A,streaming job - needs feasibility check
+545285009490455,sample_gpu_ml_job,C,MEDIUM,Team Lead B,GPU ML runtime - needs evaluation
 ```
 
 ### JSON Format
@@ -100,22 +100,22 @@ job_id,job_name,prescribed_path,priority,tower_lead,notes
   "batch_id": "batch_001",
   "batch_name": "Claims Tower - Sprint 1",
   "created_date": "2026-04-16",
-  "created_by": "Chapman Bradley",
+  "created_by": "Team Lead A",
   "jobs": [
     {
       "job_id": "545285009490448",
-      "job_name": "wf_ipro_member_sdoh",
+      "job_name": "sample_claims_pipeline",
       "prescribed_path": "C",
       "priority": "HIGH",
-      "tower_lead": "Chapman Bradley",
+      "tower_lead": "Team Lead A",
       "notes": "claims pipeline"
     },
     {
       "job_id": "545285009490449",
-      "job_name": "wf_pharmacy_daily_load",
+      "job_name": "sample_pharmacy_etl",
       "prescribed_path": "C",
       "priority": "HIGH",
-      "tower_lead": "Chapman Bradley",
+      "tower_lead": "Team Lead A",
       "notes": "pharmacy ETL - runs 6am daily"
     }
   ]
@@ -1807,13 +1807,13 @@ def generate_job_report(
 ### Example Per-Job Report Output
 
 ```
-JOB ASSESSMENT: wf_ipro_member_sdoh (545285009490448)
+JOB ASSESSMENT: sample_claims_pipeline (545285009490448)
 ============================================================
 Prescribed Path: C (PySpark/SQL 13.3 → PySpark/SQL Serverless (compute migration))
 Recommended Path: C (confirmed)
 Feasibility: PASS
 Priority: HIGH
-Tower Lead: Chapman Bradley
+Tower Lead: Team Lead A
 Notebooks: 4
 Output Tables: 3
 
@@ -2147,12 +2147,12 @@ REPO CHANGE MANIFEST:
   Init scripts to remove:               4
 
 PRIORITY BREAKDOWN:
-  HIGH priority: 12 jobs (wf_ipro_member_sdoh, wf_pharmacy_daily_load, wf_streaming_claims_ingest, scala_member_risk_scoring, wf_claims_adjudication, ... (+7 more))
-  MEDIUM priority: 10 jobs (scala_eligibility_refresh, sql_claims_summary_report, gpu_member_embedding_gen, wf_auth_daily_refresh, wf_referral_tracking, ... (+5 more))
-  LOW priority: 3 jobs (wf_provider_network_build, wf_archive_claims_quarterly, wf_reporting_snapshot)
+  HIGH priority: 12 jobs (sample_claims_pipeline, sample_pharmacy_etl, sample_streaming_ingest, sample_scala_scoring, wf_claims_adjudication, ... (+7 more))
+  MEDIUM priority: 10 jobs (sample_scala_refresh, sample_sql_report, sample_gpu_ml_job, wf_auth_daily_refresh, wf_referral_tracking, ... (+5 more))
+  LOW priority: 3 jobs (sample_provider_build, wf_archive_claims_quarterly, wf_reporting_snapshot)
 
 BLOCKED JOBS (require manual resolution):
-  wf_streaming_claims_ingest: Streaming job prescribed for serverless. Structured Streaming is not supported on serverless general compute. Must stay on classic c
+  sample_streaming_ingest: Streaming job prescribed for serverless. Structured Streaming is not supported on serverless general compute. Must stay on classic c
 ```
 
 ---

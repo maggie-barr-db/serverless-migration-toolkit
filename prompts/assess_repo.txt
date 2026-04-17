@@ -40,7 +40,7 @@ Reference: resources/16-cicd-change-guide.md for the canonical before/after JSON
 
 ## Step 2: Audit PowerShell Deployment Script
 
-Check the deployment script (e.g., deploy_report_workflow_jobs.ps1) for:
+Check the deployment script (e.g., deploy_workflow_jobs.ps1) for:
 
 1. **%env_name% replacement exists** — The script must have:
    ```powershell
@@ -88,13 +88,13 @@ JOB JSON CHANGES NEEDED:
     - [ ] Add %env_name% in Volume path
 
 DEPLOYMENT SCRIPT CHANGES:
-  deploy_report_workflow_jobs.ps1:
+  deploy_workflow_jobs.ps1:
     - [ ] Add %env_name% replacement line
     - [ ] Verify all other placeholders covered
 
 VARIABLE GROUP STATUS:
-  EIM_DA_HP_Reporting_UAT: env_name = uat ✓
-  EIM_DA_HP_Reporting_PROD: env_name = prod ✓
+  <Variable_Group_UAT>: env_name = uat ✓
+  <Variable_Group_PROD>: env_name = prod ✓
 
 WARNINGS:
   <any hardcoded values, missing variables, etc.>

@@ -1,12 +1,12 @@
 # Comprehensive Job Assessment — Master Assessment Skill
 
-The single document Genie Code loads to evaluate any individual Databricks job for serverless migration readiness. Combines checks from three sources: Shrish's notebook audit skill, Sanjay's customer feedback, and Molina's Serverless Migration SOP, augmented by our own ANSI compliance, known issues, and data compatibility resources.
+The single document Genie Code loads to evaluate any individual Databricks job for serverless migration readiness. Combines checks from three sources: notebook audit skill, customer feedback, and the customer's Serverless Migration SOP, augmented by our own ANSI compliance, known issues, and data compatibility resources.
 
 **Load this document when assessing any job. It is the canonical reference.**
 
 ---
 
-## Molina-Specific Context
+## Customer-Specific Context
 
 | Item | Value |
 |------|-------|
@@ -23,7 +23,7 @@ The single document Genie Code loads to evaluate any individual Databricks job f
 ### Design Principles
 
 1. **NEVER recommend `spark.sql.ansi.enabled = false` or `SET ANSI_MODE = false`.** The SOP document recommends this for datatype mismatch issues. We DISAGREE. ANSI mode cannot be disabled on serverless. Disabling it masks data quality issues in healthcare data. The correct approach is to fix code with ANSI-safe functions (TRY_CAST, TRY_DIVIDE, IS TRUE, try_to_timestamp, etc.). See resources/07-ansi-compliance-reference.md.
-2. **Do NOT flag `abfss://` paths as non-Unity Catalog access.** Per Sanjay: "All of our external paths in ADLS are already registered in Unity Catalog, so this recommendation is not applicable. The suggestion to use a Volume is incorrect and can be disregarded."
+2. **Do NOT flag `abfss://` paths as non-Unity Catalog access.** Per customer feedback: "All of our external paths in ADLS are already registered in Unity Catalog, so this recommendation is not applicable. The suggestion to use a Volume is incorrect and can be disregarded."
 3. **Every output table gets full data validation.** Healthcare data -- silent changes are unacceptable.
 4. **Additive CI/CD changes only.** Do not remove existing pipeline variables; only add new ones.
 
@@ -191,7 +191,7 @@ If ANY hard blocker is present, the job is ineligible for serverless general com
   (?i)fs\.azure\.account\.oauth2\.
   ```
   **IMPORTANT:** Do NOT flag the following as non-UC:
-  - `abfss://` paths -- Molina's ADLS paths are registered in Unity Catalog
+  - `abfss://` paths -- the customer's ADLS paths are registered in Unity Catalog
   - `USE CATALOG {{env}}_catalog` -- this is correct UC usage
   - 2-part table names after `USE CATALOG` -- this is correct UC usage
 - **Why:** Serverless requires Unity Catalog. Legacy Hive metastore-only tables cannot be accessed.
@@ -267,7 +267,7 @@ If ANY hard blocker is present, the job is ineligible for serverless general com
   (?i)dbutils\.fs\.mount\s*\(
   (?i)spark\.databricks\.passthrough\.enabled
   ```
-  **IMPORTANT:** Do NOT flag `abfss://` paths. Molina's ADLS paths are UC-registered.
+  **IMPORTANT:** Do NOT flag `abfss://` paths. The customer's ADLS paths are UC-registered.
 - **Why:** DBFS mounts and instance profile passthrough are not available on serverless. Access must go through Unity Catalog external locations.
 - **Fix:** Replace `/dbfs/` and `/mnt/` paths with UC-registered `abfss://` paths or Volume paths.
 - **SOP reference:** Section 3 (Data Access)
@@ -369,7 +369,7 @@ For EVERY notebook referenced by the job, scan the source code for the patterns 
   **IMPORTANT:** Cross-reference with table schema to confirm the column is actually BOOLEAN type before flagging. Not every `= 1` is a boolean comparison.
 - **Why:** ANSI mode rejects implicit BOOLEAN-to-INT comparison. `DATATYPE_MISMATCH.BINARY_OP_DIFF_TYPES` error.
 - **Fix:** Replace `col = 1` with `col IS TRUE`. Replace `col = 0` with `col IS NOT TRUE` (or `col IS FALSE` if NULLs should not match).
-- **Known Molina issues:** Issues 2, 4 in resources/13-serverless-known-issues.md (Claim_IsFinal, claim_ismemberenrolledondateofservice).
+- **Known customer issues:** Issues 2, 4 in resources/13-serverless-known-issues.md (boolean flag columns used in claims data).
 - **Detailed reference:** resources/07-ansi-compliance-reference.md, Pattern 6
 
 ---
@@ -425,9 +425,9 @@ For EVERY notebook referenced by the job, scan the source code for the patterns 
   F\.to_date\s*\(
   F\.to_timestamp\s*\(
   ```
-- **Why:** `to_date()` and `to_timestamp()` throw `CANNOT_PARSE_TIMESTAMP` or `DateTimeException` on invalid strings under ANSI mode. Molina data contains `'00000000'` and `'2299-12-34'` sentinel values.
+- **Why:** `to_date()` and `to_timestamp()` throw `CANNOT_PARSE_TIMESTAMP` or `DateTimeException` on invalid strings under ANSI mode. Customer data contains `'00000000'` and `'2299-12-34'` sentinel values.
 - **Fix:** Replace with `try_to_date` / `try_to_timestamp`. In PySpark, use `F.expr("try_to_date(col, 'format')")` (no native PySpark function exists).
-- **Known Molina issues:** Issues 3, 5 in resources/13-serverless-known-issues.md.
+- **Known customer issues:** Issues 3, 5 in resources/13-serverless-known-issues.md.
 - **Detailed reference:** resources/07-ansi-compliance-reference.md, Pattern 8
 
 ---
@@ -477,7 +477,7 @@ For EVERY notebook referenced by the job, scan the source code for the patterns 
 
 ---
 
-#### Check 20: f.lit() Wrapping Format Strings in to_date/to_timestamp (Real Molina Bug)
+#### Check 20: f.lit() Wrapping Format Strings in to_date/to_timestamp (Real Customer Bug)
 
 - **Severity:** Critical
 - **Detection:**
@@ -491,7 +491,7 @@ For EVERY notebook referenced by the job, scan the source code for the patterns 
   ```
 - **Why:** Format strings must be plain Python strings, not Column expressions. `f.lit("yyyyMMdd")` wraps the string in a Column, causing `UNRESOLVED_COLUMN.WITH_SUGGESTION` error on serverless. Classic compute may have tolerated this.
 - **Fix:** Remove the `F.lit()` wrapper. Change `F.to_date(col, F.lit("yyyyMMdd"))` to `F.to_date(col, "yyyyMMdd")`.
-- **Known Molina issue:** Issue 7 in resources/13-serverless-known-issues.md.
+- **Known customer issue:** Issue 7 in resources/13-serverless-known-issues.md.
 
 ---
 
@@ -505,9 +505,9 @@ For EVERY notebook referenced by the job, scan the source code for the patterns 
   (?i)(?:string_col|varchar_col)\s*[+\-*/]\s*\d+
   ```
   Also: review all JOIN conditions where column types differ between left and right sides. Look for STRING-to-INT implicit casts.
-- **Why:** Implicit string-to-number conversion throws `CAST_INVALID_INPUT` if the string is not a valid number. Real Molina issue: `'ENG'` cast to INT in a join condition (Issue 6).
+- **Why:** Implicit string-to-number conversion throws `CAST_INVALID_INPUT` if the string is not a valid number. Real customer issue: `'ENG'` cast to INT in a join condition (Issue 6).
 - **Fix:** Use explicit `TRY_CAST` in join conditions and arithmetic.
-- **Known Molina issue:** Issue 6 in resources/13-serverless-known-issues.md.
+- **Known customer issue:** Issue 6 in resources/13-serverless-known-issues.md.
 
 ---
 
@@ -542,7 +542,7 @@ For EVERY notebook referenced by the job, scan the source code for the patterns 
   ```
 - **Why:** Serverless manages memory and caching automatically. `.persist()` and `.cache()` are not supported (Spark Connect limitation).
 - **Fix:** Remove. If the DataFrame is used multiple times and performance is critical, materialize to a temp table.
-- **Known Molina issue:** Issue 16 in resources/13-serverless-known-issues.md.
+- **Known customer issue:** Issue 16 in resources/13-serverless-known-issues.md.
 - **SOP reference:** Section 4 (Unsupported Operations)
 
 ---
@@ -556,7 +556,7 @@ For EVERY notebook referenced by the job, scan the source code for the patterns 
   ```
 - **Why:** `REFRESH TABLE` is explicitly not supported on serverless. Throws `NOT_SUPPORTED_WITH_SERVERLESS`.
 - **Fix:** Remove. Serverless auto-refreshes metadata cache.
-- **Known Molina issue:** Issue 17 in resources/13-serverless-known-issues.md.
+- **Known customer issue:** Issue 17 in resources/13-serverless-known-issues.md.
 - **SOP reference:** Section 4
 
 ---
@@ -570,7 +570,7 @@ For EVERY notebook referenced by the job, scan the source code for the patterns 
   ```
 - **Why:** Hive-style partition repair is not supported on serverless.
 - **Fix:** Remove. Use `ALTER TABLE ... ADD PARTITION` if explicit partition discovery is needed.
-- **Known Molina issue:** Issue 18 in resources/13-serverless-known-issues.md.
+- **Known customer issue:** Issue 18 in resources/13-serverless-known-issues.md.
 - **SOP reference:** Section 4
 
 ---
@@ -585,7 +585,7 @@ For EVERY notebook referenced by the job, scan the source code for the patterns 
   ```
 - **Why:** Materialized views cannot be created or refreshed from serverless general compute. They require a SQL Warehouse.
 - **Fix:** Route this job to a Serverless SQL Warehouse. Grant Service Principal access to the warehouse.
-- **Known Molina issue:** Issue 19 in resources/13-serverless-known-issues.md.
+- **Known customer issue:** Issue 19 in resources/13-serverless-known-issues.md.
 - **SOP reference:** Section 4
 
 ---
@@ -654,7 +654,7 @@ For EVERY notebook referenced by the job, scan the source code for the patterns 
   | `spark.databricks.cluster.*` | Remove | Not applicable on serverless |
   | `spark.databricks.passthrough.enabled` | Remove | Use Unity Catalog permissions |
 
-- **Known Molina issues:** Issues 8-15 in resources/13-serverless-known-issues.md.
+- **Known customer issues:** Issues 8-15 in resources/13-serverless-known-issues.md.
 - **SOP reference:** Section 7 (Spark Configuration)
 - **Detailed reference:** resources/05-spark-config-classic-to-serverless.md
 
@@ -695,7 +695,7 @@ For EVERY notebook referenced by the job, scan the source code for the patterns 
   ```
 - **Why:** Environment variables set at the cluster level are not available on serverless. Custom spark.conf keys used as env vars (e.g., `spark.conf.get("yrmo_latest.date")`) also fail with `CONFIG_NOT_AVAILABLE`.
 - **Fix:** Use `dbutils.widgets.get("param_name")` with job-level parameters. For parent-to-child notebook communication, use `dbutils.widgets.text()` in the parent and `dbutils.widgets.get()` in the child.
-- **Known Molina issue:** Issue 15 in resources/13-serverless-known-issues.md.
+- **Known customer issue:** Issue 15 in resources/13-serverless-known-issues.md.
 - **SOP reference:** Section 5 (Environment Variables)
 
 ---
@@ -768,7 +768,7 @@ For EVERY notebook referenced by the job, scan the source code for the patterns 
   ```
 - **Why:** JAR-based data sources are not available on serverless. `DATA_SOURCE_NOT_FOUND` error.
 - **Fix:** Replace with pandas + openpyxl pattern. For reading: load via `spark.read.format("binaryFile")`, write bytes to `/local_disk0/tmp/`, read with `pd.read_excel()`, convert to Spark DataFrame. For writing: convert to pandas, write with `openpyxl`, copy from `/local_disk0/tmp/` to target path via `dbutils.fs.cp`.
-- **Known Molina issues:** Issues 21-22 in resources/13-serverless-known-issues.md.
+- **Known customer issues:** Issues 21-22 in resources/13-serverless-known-issues.md.
 - **Detailed reference:** resources/06-package-dependency-analysis.md
 
 ---
@@ -783,7 +783,7 @@ For EVERY notebook referenced by the job, scan the source code for the patterns 
   Check wheel filenames for Python version compatibility. Must contain `cp312` for Python 3.12.
 - **Why:** Serverless runs Python 3.12 on DBR 16.4. Wheels built for older Python versions will fail to install.
 - **Fix:** Rebuild wheels on DBR 16.4 / Python 3.12. Verify filename contains `cp312`.
-- **Known Molina issue:** Issue 24 in resources/13-serverless-known-issues.md.
+- **Known customer issue:** Issue 24 in resources/13-serverless-known-issues.md.
 
 ---
 
@@ -803,7 +803,7 @@ For EVERY notebook referenced by the job, scan the source code for the patterns 
   ```
 - **Why:** `.count()` triggers a full table scan. On serverless (no persistent cluster cache), this is especially expensive.
 - **Fix:** Replace with `.first() is not None` (existence check) or `df.isEmpty` (DBR 14+).
-- **Known Molina issue:** Issue 32 in resources/13-serverless-known-issues.md.
+- **Known customer issue:** Issue 32 in resources/13-serverless-known-issues.md.
 
 ---
 
@@ -819,7 +819,7 @@ For EVERY notebook referenced by the job, scan the source code for the patterns 
   ```
 - **Why:** Serverless manages parallelism internally. External threading adds overhead and contention, causing performance degradation (runtime can increase 2-4x). This is documented in the SOP as an anti-pattern.
 - **Fix:** For batch operations, use Databricks Workflows with for-each tasks instead of in-notebook threading. Note: some workloads may still be slower on serverless; benchmark before committing.
-- **Known Molina issue:** Issue 20 in resources/13-serverless-known-issues.md (1hr to 4hr with ThreadPoolExecutor).
+- **Known customer issue:** Issue 20 in resources/13-serverless-known-issues.md (1hr to 4hr with ThreadPoolExecutor).
 - **SOP reference:** Section 8 (Performance Patterns)
 
 ---
@@ -834,7 +834,7 @@ For EVERY notebook referenced by the job, scan the source code for the patterns 
   Count occurrences per cell/block. Flag if >20 consecutive `.withColumn()` calls.
 - **Why:** Deep chains cause `RecursionError: maximum recursion depth exceeded` on serverless due to different default recursion limits.
 - **Fix:** Replace with a single `.withColumns()` call that applies all transformations at once.
-- **Known Molina issue:** Issue 34 in resources/13-serverless-known-issues.md.
+- **Known customer issue:** Issue 34 in resources/13-serverless-known-issues.md.
 
 ---
 
@@ -848,7 +848,7 @@ For EVERY notebook referenced by the job, scan the source code for the patterns 
   ```
 - **Why:** On serverless, `SELECT *` with row filters can cause `MISSING_ATTRIBUTES` errors due to different logical execution plan construction. Also, column ordering may differ.
 - **Fix:** Use explicit column lists. Especially critical for `INSERT INTO ... SELECT *` patterns.
-- **Known Molina issues:** Issues 43-44 in resources/13-serverless-known-issues.md.
+- **Known customer issues:** Issues 43-44 in resources/13-serverless-known-issues.md.
 
 ---
 
@@ -862,7 +862,7 @@ For EVERY notebook referenced by the job, scan the source code for the patterns 
   ```
 - **Why:** `/tmp/` is not writable on serverless. `PermissionError: Permission denied`.
 - **Fix:** Replace with `/local_disk0/tmp/`. Then copy to Volume or `abfss://` path as needed.
-- **Known Molina issues:** Issues 23, 45 in resources/13-serverless-known-issues.md.
+- **Known customer issues:** Issues 23, 45 in resources/13-serverless-known-issues.md.
 
 ---
 
@@ -876,7 +876,7 @@ For EVERY notebook referenced by the job, scan the source code for the patterns 
   Specifically flag when the data source is an API response, parsed JSON, or dictionary with nested fields.
 - **Why:** Schema inference differs between classic and serverless (Spark Connect). Complex/nested fields may fail with `CANNOT_INFER_TYPE_FOR_FIELD`.
 - **Fix:** Provide explicit `StructType` schema as the second argument.
-- **Known Molina issues:** Issues 26-27 in resources/13-serverless-known-issues.md.
+- **Known customer issues:** Issues 26-27 in resources/13-serverless-known-issues.md.
 
 ---
 
@@ -900,7 +900,7 @@ For EVERY notebook referenced by the job, scan the source code for the patterns 
   followed by `spark.createDataFrame()` without a schema argument.
 - **Why:** API responses often have optional/nullable nested fields. Serverless schema inference cannot always determine the type, throwing `CANNOT_INFER_TYPE_FOR_FIELD`.
 - **Fix:** Define explicit `StructType` for all fields. For Jobs API responses specifically, predefine the expected schema.
-- **Known Molina issues:** Issues 26-27 in resources/13-serverless-known-issues.md.
+- **Known customer issues:** Issues 26-27 in resources/13-serverless-known-issues.md.
 
 ---
 
@@ -921,7 +921,7 @@ For EVERY notebook referenced by the job, scan the source code for the patterns 
   ```
 - **Why:** Tables with row tracking enabled have an internal `_metadata` column that conflicts with user code referencing `_metadata` (common in healthcare data for audit trails and file-level metadata from `spark.read`). Causes `UNRESOLVED_COLUMN` error.
 - **Fix:** Check if target tables have row tracking enabled (`delta.enableRowTracking = true`). If so, either disable row tracking on the table or rename the user-facing `_metadata` references in code.
-- **Known Molina issue:** Issue 28 in resources/13-serverless-known-issues.md.
+- **Known customer issue:** Issue 28 in resources/13-serverless-known-issues.md.
 - **Detailed reference:** resources/17-data-compatibility-checks.md, Section 4a
 
 ---
@@ -941,7 +941,7 @@ For EVERY notebook referenced by the job, scan the source code for the patterns 
   - NO `dbutils.` calls (except possibly `dbutils.widgets.get()`)
 - **Why:** Pure SQL jobs are more cost-effective and performant on Serverless SQL Warehouse than on Serverless General Compute.
 - **Fix:** Recommend Path D (DBSQL Serverless) for better performance and cost. Route to SQL Warehouse instead of general compute.
-- **Known Molina issue:** Issue 38 in resources/13-serverless-known-issues.md (SQL job cost higher on general compute).
+- **Known customer issue:** Issue 38 in resources/13-serverless-known-issues.md (SQL job cost higher on general compute).
 - **SOP reference:** Section 9 (SQL Optimization)
 
 ---
@@ -982,8 +982,8 @@ These checks apply to the Azure DevOps repository, not the Databricks workspace.
   "queue": { "enabled": true },
   "performance_optimized": true,
   "parameters": [
-    { "name": "PATH_LANDING", "default": "abfss://landingzone@dataingestion%env_name%adlsg2.dfs.core.windows.net/" },
-    { "name": "PATH_DATALAKE", "default": "abfss://eim-datalake-%env_name%@scadlsg2datbks%env_name%.dfs.core.windows.net/" }
+    { "name": "PATH_LANDING", "default": "abfss://<container>@<storage_account_%env_name%>.dfs.core.windows.net/" },
+    { "name": "PATH_DATALAKE", "default": "abfss://<container>@<storage_account_%env_name%>.dfs.core.windows.net/" }
   ]
 }
 ```
@@ -993,7 +993,7 @@ These checks apply to the Azure DevOps repository, not the Databricks workspace.
 #### Check 47: %env_name% Replacement in PowerShell Deployment Script
 
 - **Severity:** Required (repo-side change, one-time)
-- **Detection:** Read the PowerShell deployment script (`deploy_report_workflow_jobs.ps1`). Search for:
+- **Detection:** Read the PowerShell deployment script (e.g., `deploy_workflow_jobs.ps1`). Search for:
   ```regex
   \.Replace\s*\(\s*"%env_name%"
   ```
@@ -1171,7 +1171,7 @@ All related toolkit resources, indexed by number. Genie Code should load the rel
 |----------|------|---------------|-------------|
 | **01** | `01-scala-13.3-to-scala-16.4.md` | Path A: Scala DBR upgrade patterns | Job is Scala, staying on classic |
 | **02** | `02-scala-13.3-to-pyspark-serverless.md` | Path B: Scala-to-PySpark conversion | Job is Scala, converting to PySpark |
-| **03** | `03-pyspark-sql-13.3-to-pyspark-sql-serverless.md` | Path C: PySpark/SQL serverless migration | Most common path for Molina jobs |
+| **03** | `03-pyspark-sql-13.3-to-pyspark-sql-serverless.md` | Path C: PySpark/SQL serverless migration | Most common path for customer jobs |
 | **04** | `04-sql-to-dbsql-serverless.md` | Path D: SQL to DBSQL Serverless | Pure SQL jobs routed to SQL Warehouse |
 | **05** | `05-spark-config-classic-to-serverless.md` | Complete Spark config migration matrix | Check 28 details: which configs to remove, replace, or keep |
 | **06** | `06-package-dependency-analysis.md` | Package dependency audit and migration | Checks 31-36: library/dependency issues |
@@ -1181,7 +1181,7 @@ All related toolkit resources, indexed by number. Genie Code should load the rel
 | **10** | `10-ml-runtime-migration.md` | ML Runtime migration considerations | Jobs using ML libraries or training |
 | **11** | `11-archiving-workflow.md` | Job archival process | Jobs that are retired instead of migrated |
 | **12** | `12-documentation-links.md` | Official Databricks documentation links | External reference lookup |
-| **13** | `13-serverless-known-issues.md` | 48 confirmed Molina issues with resolutions | Error lookup: match error messages to known issues |
+| **13** | `13-serverless-known-issues.md` | 48 confirmed customer issues with resolutions | Error lookup: match error messages to known issues |
 | **14** | `14-serverless-blockers.md` | Eligibility screening checklist | Phase 2: hard and soft blocker reference |
 | **15** | `15-breaking-changes-13-to-16-regex.md` | 33 regex scan patterns by severity | Phase 3: machine-readable scan patterns for code audit |
 | **16** | `16-cicd-change-guide.md` | Azure DevOps CI/CD changes | Phase 4: job JSON transformation, PowerShell changes |
@@ -1215,7 +1215,7 @@ Quick-reference table of all 49 checks, sorted by ID.
 | 17 | make_timestamp with invalid fields | 3 | Critical | ANSI |
 | 18 | SUM on INT columns (overflow) | 3 | Critical | ANSI |
 | 19 | Integer overflow in arithmetic | 3 | High | ANSI |
-| 20 | f.lit() wrapping format strings | 3 | Critical | ANSI (Molina bug) |
+| 20 | f.lit() wrapping format strings | 3 | Critical | ANSI (customer bug) |
 | 21 | Implicit string-to-numeric conversions | 3 | High | ANSI |
 | 22 | parse_url on invalid URLs | 3 | Medium | ANSI |
 | 23 | .persist() / .cache() / CACHE TABLE | 3 | High | Unsupported Ops |

@@ -2,7 +2,7 @@
 
 Pre-migration data-level checks that must be run against every output table for every job being migrated. These checks identify data-level risks **before** the runtime or compute changes, so that issues are caught and remediated proactively rather than discovered as silent data corruption in production.
 
-**Context:** Molina Healthcare operates regulated healthcare pipelines (claims, eligibility, encounters, pharmacy). Silent data changes — a date that shifts, a boolean that flips, a row that drops — are unacceptable. CMS reporting errors carry financial penalties. These checks exist because the Bright Health DBR 7.3 EOL migration surfaced real data issues that would have gone undetected without pre-migration analysis.
+**Context:** the customer operates regulated healthcare pipelines (claims, eligibility, encounters, pharmacy). Silent data changes — a date that shifts, a boolean that flips, a row that drops — are unacceptable. CMS reporting errors carry financial penalties. These checks exist because the Bright Health DBR 7.3 EOL migration surfaced real data issues that would have gone undetected without pre-migration analysis.
 
 **Relationship to other toolkit components:**
 - These checks run **BEFORE** migration. They inform migration planning and identify tables needing pre-work.
@@ -255,7 +255,7 @@ SHOW TBLPROPERTIES ${catalog}.${schema}.${table_name};
 
 Row tracking adds a hidden `_metadata` column to the table. If any notebook code references `_metadata` (which is a common column name in healthcare data for audit trails), it will conflict with the Delta row tracking metadata column.
 
-**This was a real issue at Molina (issue #14 in their migration log).** A notebook had a column called `_metadata` in a claims table that conflicted with Delta's row tracking `_metadata` struct.
+**This was a real issue at the customer (issue #14 in their migration log).** A notebook had a column called `_metadata` in a claims table that conflicted with Delta's row tracking `_metadata` struct.
 
 ```sql
 -- Check if row tracking is enabled
@@ -390,7 +390,7 @@ Datetime handling is one of the highest-risk areas in a DBR migration. Three dis
 2. **Pre-1582 dates** — the Proleptic Gregorian calendar change in Spark 3.0+ means dates before October 15, 1582 may shift by several days when read from old parquet files.
 3. **String-typed date columns** — dates stored as strings that are cast in notebook code will fail under ANSI mode if any value is invalid.
 
-**All three of these have been observed at Molina.** The `'00000000'` date placeholder is used extensively in legacy claims data from Bright Health.
+**All three of these have been observed at the customer.** The `'00000000'` date placeholder is used extensively in legacy claims data from Bright Health.
 
 ### 5a. Identify Date/Timestamp Columns
 
@@ -466,11 +466,11 @@ FROM ${catalog}.${schema}.${table};
 
 ### 5d. Sample String Columns for Invalid Date Patterns
 
-This is the most critical check. These are real patterns found in Molina data:
+This is the most critical check. These are real patterns found in the customer data:
 
 ```sql
 -- Check a STRING column that may contain date values
--- This catches the exact invalid patterns found in Molina's Bright Health data
+-- This catches the exact invalid patterns found in the customer's Bright Health data
 SELECT
   '${table}' AS table_name,
   '${string_date_col}' AS column_name,
@@ -480,7 +480,7 @@ SELECT
   SUM(CASE WHEN ${string_date_col} IS NULL THEN 1 ELSE 0 END) AS null_count,
   SUM(CASE WHEN TRIM(${string_date_col}) = '' THEN 1 ELSE 0 END) AS empty_string_count,
 
-  -- Known bad patterns (all found in Molina data)
+  -- Known bad patterns (all found in the customer data)
   SUM(CASE WHEN ${string_date_col} = '00000000' THEN 1 ELSE 0 END) AS zeros_count,
   SUM(CASE WHEN ${string_date_col} = '99999999' THEN 1 ELSE 0 END) AS nines_count,
   SUM(CASE WHEN ${string_date_col} RLIKE '^\\d{4}-\\d{2}-\\d{2}$'
@@ -999,7 +999,7 @@ def check_partition_risk(spark, tables: list[str]) -> list[dict]:
 
 Poor file layout — many small files — is one of the most common causes of performance regression after migration. External tables are especially at risk because they do not receive Predictive Optimization (auto-compaction).
 
-**This was a real issue at Molina.** The POP (Population Health) job went from a 5-minute runtime to over 3 hours after migration because the external tables it read had accumulated thousands of small files from legacy write patterns. Running `OPTIMIZE` before migration resolved the issue.
+**This was a real issue at the customer.** The POP (Population Health) job went from a 5-minute runtime to over 3 hours after migration because the external tables it read had accumulated thousands of small files from legacy write patterns. Running `OPTIMIZE` before migration resolved the issue.
 
 ### 9a. File Count and Size Check
 

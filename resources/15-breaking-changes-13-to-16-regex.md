@@ -101,7 +101,7 @@ F\.split\s*\([^)]+\)\.getItem\s*\(\d+\)
 ### C8: Unsupported Spark configs (serverless throws CONFIG_NOT_AVAILABLE)
 
 ```regex
-# Configs known to fail on serverless (from Molina's issue log)
+# Configs known to fail on serverless (from the customer's issue log)
 spark\.databricks\.delta\.retentionDurationCheck\.enabled
 spark\.databricks\.delta\.schema\.autoMerge\.enabled
 spark\.databricks\.delta\.optimizeWrite\.enabled
@@ -222,7 +222,7 @@ com\.crealytics\.spark\.excel
 
 **Fix:** Remove the setting. Fix code to be ANSI-safe instead. This config is a no-op on serverless.
 
-### H9: f.lit() wrapping format strings (real Molina issue)
+### H9: f.lit() wrapping format strings (real the customer issue)
 
 ```regex
 # Wrong: f.lit("format") as format argument

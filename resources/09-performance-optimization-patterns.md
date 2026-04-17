@@ -246,7 +246,7 @@ VACUUM catalog.schema.table_name RETAIN 168 HOURS;
 -- Predictive Optimization is not available.
 ```
 
-> **Note:** VACUUM LITE is available as a Public Preview feature that uses the transaction log for faster execution. Since Molina requires GA features only, use standard VACUUM. Monitor Databricks release notes for GA availability.
+> **Note:** VACUUM LITE is available as a Public Preview feature that uses the transaction log for faster execution. Since the customer requires GA features only, use standard VACUUM. Monitor Databricks release notes for GA availability.
 
 ### Liquid Clustering vs ZORDER
 

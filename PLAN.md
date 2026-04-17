@@ -8,7 +8,7 @@
 
 ## 1. Scope
 
-~5,000 Databricks jobs at Molina Healthcare need to be migrated across four paths. Jobs will be processed in batches of 12-100. A manifest will specify each job's prescribed outcome.
+~5,000 Databricks jobs at the customer need to be migrated across four paths. Jobs will be processed in batches of 12-100. A manifest will specify each job's prescribed outcome.
 
 ### Migration Paths
 
@@ -61,7 +61,7 @@ The toolkit has three layers that work together. **Resources** are reference doc
 
 | # | File | Purpose |
 |---|------|---------|
-| 13 | `serverless-known-issues.md` | 48 real Molina issues indexed by error message with resolutions. |
+| 13 | `serverless-known-issues.md` | 48 real-world issues indexed by error message with resolutions. |
 | 14 | `serverless-blockers.md` | Go/no-go eligibility screening with hard and soft blockers. |
 | 15 | `breaking-changes-13-to-16-regex.md` | 33 regex scan patterns organized by severity for automated scanning. |
 | 16 | `cicd-change-guide.md` | Azure DevOps pipeline changes, job JSON template, %env_name% fix. |
@@ -653,7 +653,7 @@ Gate 4: Production Cutover
 
 5. **Two-track execution.** Databricks-side (Genie Code) and repo-side (developer/VS Code). Never conflate.
 
-6. **Env-based catalog awareness.** Molina uses `USE CATALOG {{env}}_catalog` with 2-part table names. Do not flag as non-UC. ADLS `abfss://` paths are registered in Unity Catalog - do not flag as non-UC.
+6. **Env-based catalog awareness.** The customer uses `USE CATALOG {{env}}_catalog` with 2-part table names. Do not flag as non-UC. ADLS `abfss://` paths are registered in Unity Catalog - do not flag as non-UC.
 
 7. **Batch-oriented design.** Everything works for 12-100 jobs at a time.
 

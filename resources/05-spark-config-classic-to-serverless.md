@@ -310,7 +310,7 @@ if ansi_config == "false":
 
 ## Quick Reference: Most Common Configs to Address
 
-Ranked by frequency of occurrence in Molina's codebase:
+Ranked by frequency of occurrence in the customer's codebase:
 
 | Rank | Config | Frequency | Action |
 |------|--------|-----------|--------|

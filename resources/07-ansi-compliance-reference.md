@@ -878,7 +878,7 @@ Run all of these regex patterns against every notebook being migrated. Results s
 
 ## Healthcare-Specific Guidance
 
-For Molina's regulated healthcare pipelines:
+For the customer's regulated healthcare pipelines:
 
 1. **ANSI mode is BETTER for healthcare data.** Silent null returns can mask data quality issues in claims, eligibility, and pharmacy data. Explicit errors surface problems immediately.
 

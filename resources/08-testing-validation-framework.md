@@ -1,6 +1,6 @@
 # Testing and Validation Framework
 
-This guide covers the complete testing workflow for all migration paths, designed for Molina's environment: Azure DevOps CI/CD with one-directional deployment to Databricks workspaces, no dev environment, UAT as the primary testing environment, and promotion to PROD via CI/CD.
+This guide covers the complete testing workflow for all migration paths, designed for the customer's environment: Azure DevOps CI/CD with one-directional deployment to Databricks workspaces, no dev environment, UAT as the primary testing environment, and promotion to PROD via CI/CD.
 
 ---
 
@@ -10,7 +10,7 @@ Migrations happen in UAT, get committed to the repo, and promote to PROD via CI/
 
 ### The Parameterization Problem
 
-Molina's CI/CD pipeline deploys notebooks and job JSONs to the Databricks workspace via a PowerShell script that replaces `%placeholder%` tokens with environment-specific values (e.g., `%env_name%` → `uat`, `%eim_wsp%` → the actual workspace path). This means:
+The customer's CI/CD pipeline deploys notebooks and job JSONs to the Databricks workspace via a PowerShell script that replaces `%placeholder%` tokens with environment-specific values (e.g., `%env_name%` → `uat`, `%eim_wsp%` → the actual workspace path). This means:
 
 - **Repo source files** have `%env_name%`, `%eim_wsp%`, etc. — parameterized and portable
 - **Deployed workspace files** have `uat_catalog`, the full workspace path, etc. — hardcoded for that environment
@@ -81,7 +81,7 @@ Step 8: PR merged → CI/CD deploys to PROD
 
 ## 2. Archiving and Source of Truth
 
-### Git-Based Archiving (Primary for Molina)
+### Git-Based Archiving (Primary for the customer)
 
 The Azure DevOps repo IS the archive. Original code lives on the main/release branch; migration changes live on a feature branch.
 

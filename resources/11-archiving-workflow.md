@@ -4,9 +4,9 @@ This guide defines the standard process for archiving original notebooks before 
 
 ---
 
-## Molina's Archiving Model
+## the customer's Archiving Model
 
-Molina uses two archiving mechanisms, and they serve different purposes:
+The customer uses two archiving mechanisms, and they serve different purposes:
 
 ### 1. Git-Based Archiving (Primary — Source of Truth)
 

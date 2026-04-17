@@ -1,6 +1,6 @@
 # Serverless Migration Known Issues Catalog
 
-> **Source:** Molina Healthcare serverless migration issue log
+> **Source:** Serverless migration issue log
 > **Purpose:** Searchable reference of every confirmed issue encountered during migration from classic compute to serverless, indexed by error message pattern with proven resolutions
 > **Last updated:** 2026-04-16
 
@@ -36,7 +36,7 @@ These issues arise because serverless compute enables ANSI mode by default, whic
 ### Issue 1: CAST to timestamp fails on empty/invalid strings
 
 - **Environment:** UAT
-- **Job:** `wf_ipro_member_sdoh` (job `545285009490448`)
+- **Job:** ETL pipeline job (job `545285009490448`)
 - **Error message:**
   ```
   CAST(' ' AS TIMESTAMP)
@@ -51,7 +51,7 @@ These issues arise because serverless compute enables ANSI mode by default, whic
 ### Issue 2: BOOLEAN compared to INT
 
 - **Environment:** UAT
-- **Job:** `azuredatalake_l2_wa_prc_memberview` (job `972306814207736`)
+- **Job:** Data lake L2 processing job (job `972306814207736`)
 - **Error message:**
   ```
   [DATATYPE_MISMATCH.BINARY_OP_DIFF_TYPES] Cannot resolve "(Claim_IsFinal = 1)" due to data type mismatch: the left and right operands of the binary operator have incompatible types ("BOOLEAN" and "INT"). SQLSTATE: 42K09
@@ -69,7 +69,7 @@ These issues arise because serverless compute enables ANSI mode by default, whic
 ### Issue 3: Invalid timestamp string '00000000'
 
 - **Environment:** UAT
-- **Job:** `azuredatalake_l1_pharmacy_rxinvoice` (job `493435840076236`)
+- **Job:** Data lake L1 ingestion job (job `493435840076236`)
 - **Error message:**
   ```
   [CANNOT_PARSE_TIMESTAMP] Text '00000000' could not be parsed: Invalid value for MonthOfYear (valid values 1 - 12): 0. Use try_to_timestamp to tolerate invalid input string and return NULL instead. SQLSTATE: 22007
@@ -83,7 +83,7 @@ These issues arise because serverless compute enables ANSI mode by default, whic
 ### Issue 4: Another BOOLEAN = 1 pattern
 
 - **Environment:** UAT
-- **Job:** `wf_reporting_provider_cube` (job `278153250151405`)
+- **Job:** Reporting workflow job (job `278153250151405`)
 - **Error message:**
   ```
   [DATATYPE_MISMATCH.BINARY_OP_DIFF_TYPES] Cannot resolve "(claim_ismemberenrolledondateofservice = 1)" due to data type mismatch: the left and right operands of the binary operator have incompatible types ("BOOLEAN" and "INT"). SQLSTATE: 42K09
@@ -97,7 +97,7 @@ These issues arise because serverless compute enables ANSI mode by default, whic
 ### Issue 5: Invalid date string '2299-12-34'
 
 - **Environment:** PROD
-- **Job:** `wf_tbl_master_claims_update`
+- **Job:** Claims update workflow job
 - **Error message:**
   ```
   [CAST_INVALID_INPUT] The value '2299-12-34' of the type "STRING" cannot be cast to "DATE" because it is malformed. SQLSTATE: 22018
@@ -111,7 +111,7 @@ These issues arise because serverless compute enables ANSI mode by default, whic
 ### Issue 6: String 'ENG' cast to INT in join
 
 - **Environment:** PROD
-- **Job:** `Daily_Enrollments_L2_Tables_Refresh` (job `892809447365869`)
+- **Job:** Daily enrollments refresh job (job `892809447365869`)
 - **Error message:**
   ```
   [CAST_INVALID_INPUT] The value 'ENG' of the type "STRING" cannot be cast to "INT" because it is malformed. SQLSTATE: 22018
@@ -125,7 +125,7 @@ These issues arise because serverless compute enables ANSI mode by default, whic
 ### Issue 7: f.lit() wrapping format string in to_date
 
 - **Environment:** PROD
-- **Job:** `azuredatalake_l0_pega_nrt_review_bix_extract` (job `391992294743764`)
+- **Job:** Near real-time data extract job (job `391992294743764`)
 - **Error message:**
   ```
   [UNRESOLVED_COLUMN.WITH_SUGGESTION] A column, variable, or function parameter with name 'yyyyMMdd HH:mm:ss' cannot be resolved
@@ -145,7 +145,7 @@ These issues occur because serverless compute does not support arbitrary Spark c
 ### Issue 8: delta.retentionDurationCheck.enabled
 
 - **Environment:** UAT
-- **Job:** `datalake_storage_vacuum_serverless_dg` (job `815987068818680`)
+- **Job:** Storage vacuum job (job `815987068818680`)
 - **Error message:**
   ```
   [CONFIG_NOT_AVAILABLE] Configuration spark.databricks.delta.retentionDurationCheck.enabled is not available
@@ -159,7 +159,7 @@ These issues occur because serverless compute does not support arbitrary Spark c
 ### Issue 9: delta.schema.autoMerge.enabled
 
 - **Environment:** UAT
-- **Job:** `wf_download_workflow_job_list_dg` (job `649339587918483`)
+- **Job:** Workflow metadata download job (job `649339587918483`)
 - **Error message:**
   ```
   [CONFIG_NOT_AVAILABLE] Configuration spark.databricks.delta.schema.automerge.enabled is not available
@@ -173,7 +173,7 @@ These issues occur because serverless compute does not support arbitrary Spark c
 ### Issue 10: broadcastTimeout
 
 - **Environment:** UAT
-- **Job:** `wf_ipro_claim_extract` (job `82530538514630`)
+- **Job:** Claims extract workflow job (job `82530538514630`)
 - **Error message:**
   ```
   [CONFIG_NOT_AVAILABLE] Configuration spark.sql.broadcastTimeout is not available. SQLSTATE: 42K0I
@@ -187,7 +187,7 @@ These issues occur because serverless compute does not support arbitrary Spark c
 ### Issue 11: stateStore.stateSchemaCheck
 
 - **Environment:** UAT
-- **Job:** `azuredatalake_l0_pega_nrt_review_bix_extract` (job `107564644640354`)
+- **Job:** Near real-time data extract job (job `107564644640354`)
 - **Error message:**
   ```
   [CONFIG_NOT_AVAILABLE] Configuration spark.sql.streaming.stateStore.stateSchemaCheck is not available
@@ -201,7 +201,7 @@ These issues occur because serverless compute does not support arbitrary Spark c
 ### Issue 12: delta.optimizeWrite.enabled
 
 - **Environment:** UAT
-- **Job:** `azuredatalake_l1_pega_nrt_um_to_pega_load` (job `805887616889507`)
+- **Job:** Near real-time data load job (job `805887616889507`)
 - **Error message:**
   ```
   [CONFIG_NOT_AVAILABLE] Configuration spark.databricks.delta.optimizeWrite.enabled is not available
@@ -215,7 +215,7 @@ These issues occur because serverless compute does not support arbitrary Spark c
 ### Issue 13: delta.autoCompact.enabled
 
 - **Environment:** UAT
-- **Job:** `azuredatalake_l1_pega_nrt_um_to_pega_load` (job `805887616889507`)
+- **Job:** Near real-time data load job (job `805887616889507`)
 - **Error message:**
   ```
   [CONFIG_NOT_AVAILABLE] Configuration spark.databricks.delta.autoCompact.enabled
@@ -229,7 +229,7 @@ These issues occur because serverless compute does not support arbitrary Spark c
 ### Issue 14: caseSensitive
 
 - **Environment:** UAT
-- **Job:** `azuredatalake_l0_mpcc_nrt_call_data_load_inc_15min` (job `400772929647624`)
+- **Job:** Near real-time incremental load job (job `400772929647624`)
 - **Error message:**
   ```
   [CONFIG_NOT_AVAILABLE] Configuration spark.sql.caseSensitive is not available. SQLSTATE: 42K0I
@@ -243,7 +243,7 @@ These issues occur because serverless compute does not support arbitrary Spark c
 ### Issue 15: Environment variables not available
 
 - **Environment:** PROD
-- **Job:** `LTSS Predictive Model Phase2` (job `341751071748079`)
+- **Job:** Predictive model job (job `341751071748079`)
 - **Error message:**
   ```
   [CONFIG_NOT_AVAILABLE] Configuration yrmo_latest.date is not available. SQLSTATE: 42K0I
@@ -276,7 +276,7 @@ These issues involve Spark or Databricks operations that are explicitly not supp
 ### Issue 17: REFRESH TABLE not supported
 
 - **Environment:** UAT
-- **Job:** `dimeasuresubmeasure_serverless` (job `30205435652809`)
+- **Job:** Dimension measure job (job `30205435652809`)
 - **Error message:**
   ```
   REFRESH TABLE is not supported on serverless compute
@@ -290,7 +290,7 @@ These issues involve Spark or Databricks operations that are explicitly not supp
 ### Issue 18: MSCK REPAIR TABLE not supported
 
 - **Environment:** UAT
-- **Job:** `wf_ipro_member_sdoh` (job `545285009490448`)
+- **Job:** ETL pipeline job (job `545285009490448`)
 - **Error message:** `MSCK REPAIR TABLE` removed as not supported on serverless.
 - **Root cause:** Hive-style partition repair is not supported on serverless compute.
 - **Resolution:** Remove the command. Use `ALTER TABLE ... ADD PARTITION` if explicit partition discovery is needed.
@@ -301,7 +301,7 @@ These issues involve Spark or Databricks operations that are explicitly not supp
 ### Issue 19: CREATE MATERIALIZED VIEW
 
 - **Environment:** UAT
-- **Job:** `wf_id_quality_analytics_DDL_Serverless_l2_dm` (job `834218714642152`)
+- **Job:** Data quality analytics DDL job (job `834218714642152`)
 - **Error message:**
   ```
   The materialized view operation CREATE is not allowed: Cannot CREATE the Materialized View from general compute, please use DBSQL Serverless (recommended) or Pro warehouse
@@ -316,7 +316,7 @@ These issues involve Spark or Databricks operations that are explicitly not supp
 ### Issue 20: ThreadPoolExecutor performance degradation
 
 - **Environment:** UAT
-- **Job:** `ImpactPro_spark_archival_metadata_load_WF` (job `860836477075797`)
+- **Job:** Archival metadata load workflow job (job `860836477075797`)
 - **Error message / symptom:**
   ```
   Classic: ~1hr
@@ -338,7 +338,7 @@ These issues arise because serverless compute does not support arbitrary JAR lib
 ### Issue 21: com.crealytics.spark.excel not available
 
 - **Environment:** UAT
-- **Job:** `azuredatalake_l2_isaac_ongoing_outbound_all_daily` (job `7139954452030`)
+- **Job:** Daily outbound data export job (job `7139954452030`)
 - **Error message:**
   ```
   [DATA_SOURCE_NOT_FOUND] Failed to find the data source: com.crealytics.spark.excel
@@ -375,7 +375,7 @@ These issues arise because serverless compute does not support arbitrary JAR lib
 ### Issue 23: Permission denied /tmp/ path
 
 - **Environment:** PROD
-- **Job:** `medicare_stars_analytics_pharmacy_projection` (job `483893966858899`)
+- **Job:** Analytics projection job (job `483893966858899`)
 - **Error message:**
   ```
   PermissionError: [Errno 13] Permission denied: '/tmp/temp.xlsx'
@@ -389,7 +389,7 @@ These issues arise because serverless compute does not support arbitrary JAR lib
 ### Issue 24: Incompatible wheel file
 
 - **Environment:** UAT
-- **Job:** `azuredatalake_l0_mpcc_nrt_call_data_load` (job `158222698341163`)
+- **Job:** Near real-time call data load job (job `158222698341163`)
 - **Error message:** Library installation failed with incompatible wheel.
 - **Root cause:** Wheel files built for older Python versions or different platforms are incompatible with serverless, which runs Python 3.12 on DBR 16.4.
 - **Resolution:** Recreate wheel files using DBR 16.4. Ensure the wheel filename contains `cp312` (indicating Python 3.12 compatibility). Check version compatibility of all dependent packages before deploying.
@@ -400,7 +400,7 @@ These issues arise because serverless compute does not support arbitrary JAR lib
 ### Issue 25: CSV null value handling
 
 - **Environment:** PROD
-- **Job:** `ImpactPro_spark_input_metadata_load_WF` (job `278589292631939`)
+- **Job:** Input metadata load workflow job (job `278589292631939`)
 - **Error message / symptom:** CSV write adding double quotes for null values.
 - **Root cause:** Default CSV writer behavior on serverless handles null values differently, wrapping them in quotes.
 - **Resolution:** Add `.option("nullValue","").option("quote","")` when writing CSV files.
@@ -417,7 +417,7 @@ These issues occur when serverless compute's stricter schema inference cannot au
 ### Issue 26: CANNOT_INFER_TYPE_FOR_FIELD `details`
 
 - **Environment:** UAT
-- **Job:** `wf_job_retrieve_autoscale_events_dg` (job `730705190841128`)
+- **Job:** Autoscale events retrieval job (job `730705190841128`)
 - **Error message:**
   ```
   [CANNOT_INFER_TYPE_FOR_FIELD] Unable to infer the type of the field 'details'
@@ -449,7 +449,7 @@ These issues occur when serverless compute's stricter schema inference cannot au
 ### Issue 28: _metadata column resolution error
 
 - **Environment:** PROD
-- **Job:** `WF_ERA_DataLoad_BD1_Serverless_Testing` (job `234987797088729`)
+- **Job:** Data load workflow job (job `234987797088729`)
 - **Error message:**
   ```
   A column, variable, or function parameter with name '_metadata' cannot be resolved. SQLSTATE: 42703
@@ -469,7 +469,7 @@ These issues cover runtime regressions, memory errors, and cost changes observed
 ### Issue 29: VACUUM performance -- sequential vs multiprocessing
 
 - **Environment:** PROD
-- **Job:** `datalake_storage_vacuum_dg` (job `192924104096691`)
+- **Job:** Storage vacuum job (job `192924104096691`)
 - **Error message / symptom:**
   ```
   Classic: 2.11 hours
@@ -486,7 +486,7 @@ These issues cover runtime regressions, memory errors, and cost changes observed
 ### Issue 30: VACUUM LITE error on tables without prior VACUUM FULL
 
 - **Environment:** PROD
-- **Job:** `datalake_storage_vacuum_dg` (job `192924104096691`)
+- **Job:** Storage vacuum job (job `192924104096691`)
 - **Error message:**
   ```
   [DELTA_CANNOT_VACUUM_LITE] VACUUM LITE cannot delete all eligible files as some files are not referenced by the Delta log. Please run VACUUM FULL.
@@ -500,7 +500,7 @@ These issues cover runtime regressions, memory errors, and cost changes observed
 ### Issue 31: Job runtime 5-10 min to 3 hours (external tables)
 
 - **Environment:** PROD
-- **Job:** `POP` (job `342286338536406`)
+- **Job:** Population analytics job (job `342286338536406`)
 - **Root cause:** External tables have no Predictive Optimization and poor file layout. Serverless does not benefit from cached data on long-running clusters.
 - **Resolution:** Run `OPTIMIZE` with `ZORDER` on the tables. Run `ANALYZE TABLE ... COMPUTE STATISTICS FOR ALL COLUMNS`. External tables need explicit maintenance since Predictive Optimization does not apply.
 - **Prevention:** Identify all external tables used by migrating jobs. Schedule `OPTIMIZE` and `ANALYZE` before migration. Consider converting to managed tables where possible.
@@ -510,7 +510,7 @@ These issues cover runtime regressions, memory errors, and cost changes observed
 ### Issue 32: Job runtime 40min to 3.5 hours (count/collect anti-patterns)
 
 - **Environment:** PROD
-- **Job:** `1.mFRED_Base_Prod_Serverless` (job `918560612590945`)
+- **Job:** Base ETL pipeline job (job `918560612590945`)
 - **Root cause:** Unnecessary `.count()` actions, `PartitionBy` in writes, and poor table layout. These patterns are expensive on serverless where there is no persistent cluster cache.
 - **Resolution:**
   1. Comment out unnecessary `count()` calls (saved 30-40 min)
@@ -651,7 +651,7 @@ These issues cover runtime regressions, memory errors, and cost changes observed
 ### Issue 42: Session terminated during long VACUUM
 
 - **Environment:** PROD
-- **Job:** `datalake_storage_vacuum_dg` (job `192924104096691`)
+- **Job:** Storage vacuum job (job `192924104096691`)
 - **Error message:**
   ```
   BAD_REQUEST: session_id is no longer usable... reason=UNDERLYING_CLUSTER_TERMINATED

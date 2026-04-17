@@ -173,7 +173,7 @@ FROM IDENTIFIER(:env || '_catalog.claims_schema.claims_silver')
 WHERE claim_date >= :start_date
 ```
 
-Or using Molina's established pattern with `USE CATALOG`:
+Or using the customer's established pattern with `USE CATALOG`:
 ```sql
 USE CATALOG IDENTIFIER(:env || '_catalog');
 
@@ -182,7 +182,7 @@ FROM claims_schema.claims_silver
 WHERE claim_date >= :start_date
 ```
 
-> **Molina-specific note:** Molina uses `USE CATALOG {{env}}_catalog` with 2-part table names. This is correct Unity Catalog usage. Do NOT flag 2-part namespaces as non-UC.
+> **Customer-specific note:** The customer uses `USE CATALOG {{env}}_catalog` with 2-part table names. This is correct Unity Catalog usage. Do NOT flag 2-part namespaces as non-UC.
 
 ### Magic Command Conversion
 
@@ -946,7 +946,7 @@ FILEFORMAT = CSV;
 Or using Unity Catalog external locations:
 ```sql
 COPY INTO claims_raw
-FROM 'abfss://landing@molinastorage.dfs.core.windows.net/claims/'
+FROM 'abfss://landing@customerstorage.dfs.core.windows.net/claims/'
 FILEFORMAT = CSV;
 ```
 

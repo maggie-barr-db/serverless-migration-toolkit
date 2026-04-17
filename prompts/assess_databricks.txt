@@ -9,7 +9,7 @@ I will provide either:
 If I provide a manifest, it will look like:
 ```
 job_id, job_name, prescribed_path, priority
-545285009490448, wf_ipro_member_sdoh, C, HIGH
+545285009490448, sample_claims_pipeline, C, HIGH
 ```
 
 Where path is: A (Scala→Scala 16.4), B (Scala→PySpark Serverless), C (PySpark→Serverless), D (SQL→DBSQL)
@@ -76,8 +76,8 @@ For each finding, record:
 - Whether this is a Databricks-side or repo-side change
 
 **IMPORTANT:**
-- Do NOT flag abfss:// paths as non-Unity Catalog. Molina's ADLS paths are registered in UC.
-- Do NOT flag 2-part table names after USE CATALOG as non-UC. Molina uses `USE CATALOG {{env}}_catalog`.
+- Do NOT flag abfss:// paths as non-Unity Catalog. the customer's ADLS paths are registered in UC.
+- Do NOT flag 2-part table names after USE CATALOG as non-UC. The customer uses `USE CATALOG {{env}}_catalog`.
 - Do NOT recommend `spark.sql.ansi.enabled = false`. Always recommend ANSI-safe code fixes.
 - Do NOT recommend non-GA features (VACUUM LITE, serverless JAR tasks).
 

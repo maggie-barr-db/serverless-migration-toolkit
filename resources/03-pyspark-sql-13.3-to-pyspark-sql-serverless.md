@@ -4,7 +4,7 @@
 
 **What this path combines:** A DBR upgrade (13.3 --> serverless latest Spark) AND a compute migration (classic clusters --> serverless). No language conversion is needed.
 
-**Customer context:** Molina Healthcare, ~5000 jobs. Healthcare data -- silent data changes are unacceptable. Both standard and ML runtime source notebooks are in scope. Molina uses `USE CATALOG {{env}}_catalog` with 2-part table names -- this is correct Unity Catalog usage and must NOT be flagged as non-UC.
+**Customer context:** the customer, ~5000 jobs. Healthcare data -- silent data changes are unacceptable. Both standard and ML runtime source notebooks are in scope. The customer uses `USE CATALOG {{env}}_catalog` with 2-part table names -- this is correct Unity Catalog usage and must NOT be flagged as non-UC.
 
 ---
 
@@ -1336,10 +1336,10 @@ dbutils.widgets.text("dry_run", "false", "Dry Run")
 dry_run = dbutils.widgets.get("dry_run").lower() == "true"
 ```
 
-### 6.4 Common Molina Environment Patterns
+### 6.4 Common the customer Environment Patterns
 
 ```python
-# Standard Molina notebook header for serverless
+# Standard the customer notebook header for serverless
 dbutils.widgets.text("env", "dev", "Environment")
 env = dbutils.widgets.get("env")
 

@@ -354,7 +354,7 @@ When upgrading a notebook from 13.3 to 16.4, run all checks in this order:
 - ANSI compliance fix patterns: `resources/07-ansi-compliance-reference.md`
 - Spark config migration map: `resources/05-spark-config-classic-to-serverless.md`
 - Breaking changes regex patterns: `resources/15-breaking-changes-13-to-16-regex.md`
-- Known issues from Molina: `resources/13-serverless-known-issues.md`
+- Known issues from the customer: `resources/13-serverless-known-issues.md`
 
 ## What Stays the Same
 

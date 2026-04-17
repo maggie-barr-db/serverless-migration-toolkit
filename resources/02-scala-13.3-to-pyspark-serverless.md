@@ -1,7 +1,7 @@
 # Path B: Scala on DBR 13.3 LTS to PySpark on Serverless General Compute
 
 **Migration Path:** Scala (DBR 13.3 LTS, Spark 3.4.1) --> PySpark (Serverless Environment Version 4, Python 3.12)
-**Audience:** Genie Code (automated migrations), Molina Healthcare engineering team (edge case reference)
+**Audience:** Genie Code (automated migrations), the customer engineering team (edge case reference)
 **Last Updated:** 2026-04-16
 
 ---
@@ -80,7 +80,7 @@ In practice, Steps 2 and 3 may be combined for simple notebooks with no ANSI-sen
 
 ### Reference Skill
 
-The full Scala-to-PySpark conversion guide is in `skills/scala_to_pyspark/skill.md`. That skill covers all syntax translation, type system changes, and behavioral differences in detail. **Do not duplicate that content here.** Instead, this section covers the patterns most commonly encountered in Molina's codebase and the ones most likely to cause silent data changes.
+The full Scala-to-PySpark conversion guide is in `skills/scala_to_pyspark/skill.md`. That skill covers all syntax translation, type system changes, and behavioral differences in detail. **Do not duplicate that content here.** Instead, this section covers the patterns most commonly encountered in the customer's codebase and the ones most likely to cause silent data changes.
 
 ### Critical Patterns Quick Reference
 
@@ -1086,7 +1086,7 @@ mode = dbutils.widgets.get("mode")
 {
   "name": "claims_etl_pipeline",
   "email_notifications": {
-    "on_failure": ["oncall@molina.com"]
+    "on_failure": ["oncall@example.com"]
   },
   "timeout_seconds": 0,
   "max_concurrent_runs": 1,
@@ -1159,7 +1159,7 @@ mode = dbutils.widgets.get("mode")
 {
   "name": "claims_etl_pipeline",
   "email_notifications": {
-    "on_failure": ["oncall@molina.com"]
+    "on_failure": ["oncall@example.com"]
   },
   "timeout_seconds": 0,
   "max_concurrent_runs": 1,
