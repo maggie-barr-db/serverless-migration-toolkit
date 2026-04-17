@@ -76,63 +76,63 @@ Every migration has changes in two places:
 Features:
 
 1. ANSI compliance fix patterns
-    - TRY_CAST for every unsafe CAST operation (numeric, date, timestamp, boolean)
-    - TRY_DIVIDE and null guards for division by zero
-    - TRY_ELEMENT_AT for array and map out-of-bounds access
-    - IS TRUE / IS NOT TRUE for boolean-to-integer comparisons
-    - try_to_date and try_to_timestamp for invalid date/time strings
-    - Type widening for integer overflow (CAST to BIGINT before arithmetic)
+    1. TRY_CAST for every unsafe CAST operation (numeric, date, timestamp, boolean)
+    2. TRY_DIVIDE and null guards for division by zero
+    3. TRY_ELEMENT_AT for array and map out-of-bounds access
+    4. IS TRUE / IS NOT TRUE for boolean-to-integer comparisons
+    5. try_to_date and try_to_timestamp for invalid date/time strings
+    6. Type widening for integer overflow (CAST to BIGINT before arithmetic)
 
 2. Deprecated config detection and removal
-    - Configs removed between 13.3 and 16.4 with exact replacement actions
-    - Detection regex patterns for spark.conf.set and SQL SET statements
-    - Init script configs that need migration
+    1. Configs removed between 13.3 and 16.4 with exact replacement actions
+    2. Detection regex patterns for spark.conf.set and SQL SET statements
+    3. Init script configs that need migration
 
 3. Changed default detection
-    - spark.sql.ansi.enabled: false to true (most impactful change)
-    - spark.sql.sources.default: parquet to delta
-    - AQE behavior changes (more aggressive partition coalescing)
-    - spark.sql.session.timeZone differences
+    1. spark.sql.ansi.enabled: false to true (most impactful change)
+    2. spark.sql.sources.default: parquet to delta
+    3. AQE behavior changes (more aggressive partition coalescing)
+    4. spark.sql.session.timeZone differences
 
 4. Deprecated API detection
-    - SQL functions deprecated or with changed behavior
-    - DataFrame method changes
-    - UDF registration pattern changes
-    - Legacy mode flags that no longer exist
+    1. SQL functions deprecated or with changed behavior
+    2. DataFrame method changes
+    3. UDF registration pattern changes
+    4. Legacy mode flags that no longer exist
 
 5. New features available in 16.4
-    - Liquid Clustering (GA, replaces ZORDER for new tables)
-    - Predictive I/O (automatic, no code change)
-    - IDENTIFIER() clause for dynamic SQL without injection
-    - Default column values
-    - Python UDF performance improvements (3-5x faster)
+    1. Liquid Clustering (GA, replaces ZORDER for new tables)
+    2. Predictive I/O (automatic, no code change)
+    3. IDENTIFIER() clause for dynamic SQL without injection
+    4. Default column values
+    5. Python UDF performance improvements (3-5x faster)
 
 6. Delta Lake changes
-    - Protocol version auto-upgrade risks (irreversible)
-    - Deletion vectors (default for new tables)
-    - Row tracking availability (_metadata column conflicts)
-    - Column mapping defaults
+    1. Protocol version auto-upgrade risks (irreversible)
+    2. Deletion vectors (default for new tables)
+    3. Row tracking availability (_metadata column conflicts)
+    4. Column mapping defaults
 
 7. PySpark-specific changes
-    - Arrow-based UDF defaults in 16.4
-    - pandas_udf improvements and stability
-    - Simplified traceback for better UDF error messages
+    1. Arrow-based UDF defaults in 16.4
+    2. pandas_udf improvements and stability
+    3. Simplified traceback for better UDF error messages
 
 8. Scala-specific changes
-    - Scala 2.12.15 to 2.12.18 compatibility (minor)
-    - Dataset API deprecations
-    - Type inference changes
+    1. Scala 2.12.15 to 2.12.18 compatibility (minor)
+    2. Dataset API deprecations
+    3. Type inference changes
 
 9. Structured regex patterns for automated scanning
-    - 33 patterns organized by severity (Critical, High, Medium, Low)
-    - Machine-readable JSON format for tooling integration
-    - References `resources/15-breaking-changes-13-to-16-regex.md`
+    1. 33 patterns organized by severity (Critical, High, Medium, Low)
+    2. Machine-readable JSON format for tooling integration
+    3. References `resources/15-breaking-changes-13-to-16-regex.md`
 
 10. Scan checklist
-    - Pass 1 (Critical): CAST, division, boolean, array/map, to_date/to_timestamp, configs, REFRESH/MSCK
-    - Pass 2 (High): persist/cache, RDD APIs, env vars, libraries, ANSI=false
-    - Pass 3 (Medium): SELECT *, threading, /tmp paths, schema inference, chained withColumn
-    - Pass 4 (Low): count anti-patterns, ZORDER awareness, manual partition configs
+    1. Pass 1 (Critical): CAST, division, boolean, array/map, to_date/to_timestamp, configs, REFRESH/MSCK
+    2. Pass 2 (High): persist/cache, RDD APIs, env vars, libraries, ANSI=false
+    3. Pass 3 (Medium): SELECT *, threading, /tmp paths, schema inference, chained withColumn
+    4. Pass 4 (Low): count anti-patterns, ZORDER awareness, manual partition configs
 
 #### Scala to PySpark Skill
 
@@ -141,76 +141,76 @@ Features:
 Features:
 
 1. Import translations
-    - org.apache.spark.sql.functions._ to from pyspark.sql import functions as F
-    - org.apache.spark.sql.types._ to from pyspark.sql.types import *
-    - Always use F. prefix convention (never import * from functions)
+    1. org.apache.spark.sql.functions._ to from pyspark.sql import functions as F
+    2. org.apache.spark.sql.types._ to from pyspark.sql.types import *
+    3. Always use F. prefix convention (never import * from functions)
 
 2. Column reference syntax
-    - $"col" to F.col("col")
-    - .as("alias") to .alias("alias")
-    - === to ==, =!= to !=
-    - && to & with parentheses, || to | with parentheses
+    1. $"col" to F.col("col")
+    2. .as("alias") to .alias("alias")
+    3. === to ==, =!= to !=
+    4. && to & with parentheses, || to | with parentheses
 
 3. Case class to StructType / dataclass conversion
-    - Typed Dataset .as[CaseClass] patterns removed entirely
-    - Schema definition converted to StructType with StructField
-    - Data containers converted to Python dataclass or namedtuple
+    1. Typed Dataset .as[CaseClass] patterns removed entirely
+    2. Schema definition converted to StructType with StructField
+    3. Data containers converted to Python dataclass or namedtuple
 
 4. Pattern matching to if/elif or dictionary
-    - Simple value matching to dictionary lookup
-    - Nested pattern matching to if/elif chains
-    - Pattern matching inside UDFs to Python conditionals
+    1. Simple value matching to dictionary lookup
+    2. Nested pattern matching to if/elif chains
+    3. Pattern matching inside UDFs to Python conditionals
 
 5. Option/Some/None to Python None handling
-    - .getOrElse(default) to x if x is not None else default
-    - .map(f) to f(x) if x is not None else None
-    - .isDefined/.isEmpty to is not None / is None
+    1. .getOrElse(default) to x if x is not None else default
+    2. .map(f) to f(x) if x is not None else None
+    3. .isDefined/.isEmpty to is not None / is None
 
 6. Try/Success/Failure to try/except
-    - Try block to try/except with specific exception types
-    - Success/Failure matching to result/exception handling
+    1. Try block to try/except with specific exception types
+    2. Success/Failure matching to result/exception handling
 
 7. UDF conversion
-    - Explicit returnType required in PySpark UDFs
-    - None handling for every code path (null in Scala to None in Python)
-    - @F.udf decorator preferred over F.udf() wrapper
-    - SQL-registered UDFs via spark.udf.register with returnType
+    1. Explicit returnType required in PySpark UDFs
+    2. None handling for every code path (null in Scala to None in Python)
+    3. @F.udf decorator preferred over F.udf() wrapper
+    4. SQL-registered UDFs via spark.udf.register with returnType
 
 8. Array/map access sugar
-    - column(index) to column[index] or .getItem(index) - never column(index)
-    - typedLit(Map(...)) to F.create_map() with F.element_at() for lookups
-    - split(...)(n) to F.split(...).getItem(n) or F.split(...)[n]
+    1. column(index) to column[index] or .getItem(index) - never column(index)
+    2. typedLit(Map(...)) to F.create_map() with F.element_at() for lookups
+    3. split(...)(n) to F.split(...).getItem(n) or F.split(...)[n]
 
 9. Boolean operator precedence
-    - && to & and || to | require parentheses around BOTH operands
-    - ! (not) to ~ with parentheses
-    - Python & and | have higher precedence than comparison operators
+    1. && to & and || to | require parentheses around BOTH operands
+    2. ! (not) to ~ with parentheses
+    3. Python & and | have higher precedence than comparison operators
 
 10. Numeric precision differences
-    - BigDecimal HALF_UP rounding to Decimal with ROUND_HALF_UP (not Python round())
-    - Integer division: Scala / is integer division, Python / is float division (use //)
-    - Floating-point comparison tolerance (1e-6) for aggregates
+    1. BigDecimal HALF_UP rounding to Decimal with ROUND_HALF_UP (not Python round())
+    2. Integer division: Scala / is integer division, Python / is float division (use //)
+    3. Floating-point comparison tolerance (1e-6) for aggregates
 
 11. Date parsing edge cases
-    - SimpleDateFormat lenient mode rolls invalid dates forward; Python strptime raises ValueError
-    - Thread safety differences (SimpleDateFormat is not thread-safe)
-    - Timezone handling: JVM default TZ vs Python naive datetime
+    1. SimpleDateFormat lenient mode rolls invalid dates forward; Python strptime raises ValueError
+    2. Thread safety differences (SimpleDateFormat is not thread-safe)
+    3. Timezone handling: JVM default TZ vs Python naive datetime
 
 12. Silent data difference patterns
-    - Null propagation: .getOrElse(null) must map to None, not "" or 0
-    - Regex escaping: Java regex in Spark SQL functions vs Python re module
-    - Empty collection behavior: .head throws different exceptions in each language
+    1. Null propagation: .getOrElse(null) must map to None, not "" or 0
+    2. Regex escaping: Java regex in Spark SQL functions vs Python re module
+    3. Empty collection behavior: .head throws different exceptions in each language
 
 13. Non-determinism warnings
-    - Sort order with nulls may differ between runs
-    - dropDuplicates row selection is non-deterministic
-    - HashMap iteration order (non-deterministic in Scala, insertion-ordered in Python 3.7+)
-    - Floating-point aggregation order can produce tiny differences
+    1. Sort order with nulls may differ between runs
+    2. dropDuplicates row selection is non-deterministic
+    3. HashMap iteration order (non-deterministic in Scala, insertion-ordered in Python 3.7+)
+    4. Floating-point aggregation order can produce tiny differences
 
 14. Comprehensive conversion checklist
-    - Column references, type system, UDFs, boolean operators
-    - Null handling, numeric precision, date parsing
-    - Variable names (Python reserved words), regex, collections
+    1. Column references, type system, UDFs, boolean operators
+    2. Null handling, numeric precision, date parsing
+    3. Variable names (Python reserved words), regex, collections
 
 #### Conversion Validator Skill
 
@@ -219,100 +219,100 @@ Features:
 Features:
 
 1. Schema comparison
-    - Column names must match exactly
-    - Column types must match exactly
-    - Nullable mismatches flagged as warnings
+    1. Column names must match exactly
+    2. Column types must match exactly
+    3. Nullable mismatches flagged as warnings
 
 2. Row count comparison
-    - Exact count match required
-    - Orphan row detection via full outer join on primary key
-    - Zero orphans in either direction
+    1. Exact count match required
+    2. Orphan row detection via full outer join on primary key
+    3. Zero orphans in either direction
 
 3. Null count comparison
-    - Per-column null counts must match exactly
-    - First signal of UDF conversion issues
-    - Differences indicate changed null handling
+    1. Per-column null counts must match exactly
+    2. First signal of UDF conversion issues
+    3. Differences indicate changed null handling
 
 4. Aggregate statistics comparison
-    - SUM, AVG, MIN, MAX per numeric column
-    - Tolerance-based comparison (1e-6 for floating-point)
-    - Zero count and negative count must match exactly
+    1. SUM, AVG, MIN, MAX per numeric column
+    2. Tolerance-based comparison (1e-6 for floating-point)
+    3. Zero count and negative count must match exactly
 
 5. Distinct value set comparison
-    - Per string/categorical column
-    - Identical distinct value sets required
-    - New or missing values indicate transformation changes
+    1. Per string/categorical column
+    2. Identical distinct value sets required
+    3. New or missing values indicate transformation changes
 
 6. Row-by-row data comparison
-    - Uses eqNullSafe (null == null is true, not null)
-    - Zero mismatches expected across all columns
-    - Sample mismatched rows shown for debugging
+    1. Uses eqNullSafe (null == null is true, not null)
+    2. Zero mismatches expected across all columns
+    3. Sample mismatched rows shown for debugging
 
 7. Date/timestamp deep validation
-    - Value-by-value date comparison
-    - Timezone offset detection (dates off by 1 day, timestamps off by hours)
-    - Null vs epoch zero confusion (null becoming 1970-01-01)
-    - Date boundary cases (leap year, month-end, year rollover)
-    - Date type comparison (DATE vs TIMESTAMP in schema)
-    - String date format comparison for bronze-layer columns
-    - Identifies all date/timestamp columns including string dates by name pattern
+    1. Value-by-value date comparison
+    2. Timezone offset detection (dates off by 1 day, timestamps off by hours)
+    3. Null vs epoch zero confusion (null becoming 1970-01-01)
+    4. Date boundary cases (leap year, month-end, year rollover)
+    5. Date type comparison (DATE vs TIMESTAMP in schema)
+    6. String date format comparison for bronze-layer columns
+    7. Identifies all date/timestamp columns including string dates by name pattern
 
 8. Null vs empty string confusion detection
-    - Detects null becoming "" or "" becoming null
-    - Detects null becoming a default string value
-    - Critical for joins (null != null but "" == "")
+    1. Detects null becoming "" or "" becoming null
+    2. Detects null becoming a default string value
+    3. Critical for joins (null != null but "" == "")
 
 9. Null vs zero/default numeric confusion detection
-    - Detects null becoming 0 or 0 becoming null
-    - Affects SUM and AVG calculations (null is excluded, 0 is included)
+    1. Detects null becoming 0 or 0 becoming null
+    2. Affects SUM and AVG calculations (null is excluded, 0 is included)
 
 10. Boolean/flag equivalence check
-    - Case differences ("NORMAL" vs "Normal")
-    - Whitespace differences
-    - Boolean column true/false/null distribution comparison
+    1. Case differences ("NORMAL" vs "Normal")
+    2. Whitespace differences
+    3. Boolean column true/false/null distribution comparison
 
 11. Numeric precision and rounding difference detection
-    - Categorizes diffs: floating_point_noise (<1e-10), rounding_difference (<0.01), small (<1.0), large (>=1.0)
-    - Detects banker's rounding vs HALF_UP pattern (values differing by ~0.01)
-    - Floating-point noise is acceptable; rounding differences need investigation
+    1. Categorizes diffs: floating_point_noise (<1e-10), rounding_difference (<0.01), small (<1.0), large (>=1.0)
+    2. Detects banker's rounding vs HALF_UP pattern (values differing by ~0.01)
+    3. Floating-point noise is acceptable; rounding differences need investigation
 
 12. UDF output consistency check
-    - Targeted checks per UDF-produced column
-    - Categorizes mismatches as null-related vs value-different
-    - Shows input values that caused mismatches for debugging
+    1. Targeted checks per UDF-produced column
+    2. Categorizes mismatches as null-related vs value-different
+    3. Shows input values that caused mismatches for debugging
 
 13. Edge case data patterns
-    - Negative number count comparison
-    - Empty string vs null distribution
-    - Very large numbers (potential overflow)
-    - Special string values (N/A, null, None, NaN)
-    - NaN count comparison
-    - Duplicate primary key detection (validates join correctness)
+    1. Negative number count comparison
+    2. Empty string vs null distribution
+    3. Very large numbers (potential overflow)
+    4. Special string values (N/A, null, None, NaN)
+    5. NaN count comparison
+    6. Duplicate primary key detection (validates join correctness)
 
 14. Non-determinism detection
-    - Identifies columns where differences may be from non-deterministic behavior
-    - Checks if mismatched rows correlate with duplicate-like data
-    - Floating-point aggregation order analysis (relative diff < 1e-10 is noise)
+    1. Identifies columns where differences may be from non-deterministic behavior
+    2. Checks if mismatched rows correlate with duplicate-like data
+    3. Floating-point aggregation order analysis (relative diff < 1e-10 is noise)
 
 15. Serverless compute verification
-    - Confirms job ran on serverless via run details API
-    - Every task must have environment_key, no cluster_id
-    - Detects if job accidentally ran on classic compute
+    1. Confirms job ran on serverless via run details API
+    2. Every task must have environment_key, no cluster_id
+    3. Detects if job accidentally ran on classic compute
 
 16. Config compliance check
-    - Scans run logs for CONFIG_NOT_AVAILABLE errors
-    - Verifies no unsupported configs were set in notebook code
-    - References supported config list from resource 05
+    1. Scans run logs for CONFIG_NOT_AVAILABLE errors
+    2. Verifies no unsupported configs were set in notebook code
+    3. References supported config list from resource 05
 
 17. Environment key verification
-    - Confirms environment_key on all tasks in job config
-    - Verifies environments block has client "4"
-    - Checks for unresolved %env_name% placeholders in dependencies path
+    1. Confirms environment_key on all tasks in job config
+    2. Verifies environments block has client "4"
+    3. Checks for unresolved %env_name% placeholders in dependencies path
 
 18. Performance comparison
-    - Task-level duration comparison: classic vs serverless
-    - Flags any task exceeding 2x classic runtime as regression
-    - Informational, not a blocking failure
+    1. Task-level duration comparison: classic vs serverless
+    2. Flags any task exceeding 2x classic runtime as regression
+    3. Informational, not a blocking failure
 
 #### Conversion Report Skill
 
@@ -321,51 +321,51 @@ Features:
 Features:
 
 1. Executive summary
-    - Total change count
-    - Breakdown by category: syntax, API, ANSI compliance, runtime, UDF, behavioral
-    - Risk assessment: how many changes are purely syntactic vs potentially behavior-altering
+    1. Total change count
+    2. Breakdown by category: syntax, API, ANSI compliance, runtime, UDF, behavioral
+    3. Risk assessment: how many changes are purely syntactic vs potentially behavior-altering
 
 2. Notebook-by-notebook diff
-    - Every change with notebook name, cell/line number
-    - Category, original code, converted code, reason for change
-    - Risk level (None, Low, Medium, High) and behavioral impact (Yes/No/Possible)
+    1. Every change with notebook name, cell/line number
+    2. Category, original code, converted code, reason for change
+    3. Risk level (None, Low, Medium, High) and behavioral impact (Yes/No/Possible)
 
 3. ANSI compliance audit section
-    - Every ANSI-sensitive pattern found in original code
-    - How it was addressed (TRY_CAST, TRY_DIVIDE, IS TRUE, etc.)
-    - Risk assessment per fix
+    1. Every ANSI-sensitive pattern found in original code
+    2. How it was addressed (TRY_CAST, TRY_DIVIDE, IS TRUE, etc.)
+    3. Risk assessment per fix
 
 4. UDF conversion detail
-    - Side-by-side Scala vs PySpark code for every UDF
-    - Null handling analysis per UDF (every code path traced)
-    - Edge case behavior comparison
+    1. Side-by-side Scala vs PySpark code for every UDF
+    2. Null handling analysis per UDF (every code path traced)
+    3. Edge case behavior comparison
 
 5. Date/timestamp conversion detail
-    - Every date operation analyzed for timezone, format, and precision differences
-    - Cross-referenced with validation results from Check 7
-    - SimpleDateFormat lenient mode behavior documented
+    1. Every date operation analyzed for timezone, format, and precision differences
+    2. Cross-referenced with validation results from Check 7
+    3. SimpleDateFormat lenient mode behavior documented
 
 6. Risk summary table
-    - All changes ranked by risk (High, Medium, Low, None)
-    - High-risk changes include mitigation steps
-    - Validation references for each risk item
+    1. All changes ranked by risk (High, Medium, Low, None)
+    2. High-risk changes include mitigation steps
+    3. Validation references for each risk item
 
 7. Serverless-specific change section
-    - Job JSON transformation details (before/after)
-    - Environment variable migration (os.environ.get to dbutils.widgets.get)
-    - Spark config removals with rationale per config
-    - Unsupported operation removals (REFRESH TABLE, MSCK REPAIR, .persist())
+    1. Job JSON transformation details (before/after)
+    2. Environment variable migration (os.environ.get to dbutils.widgets.get)
+    3. Spark config removals with rationale per config
+    4. Unsupported operation removals (REFRESH TABLE, MSCK REPAIR, .persist())
 
 8. Library replacement section
-    - Each replaced library with original usage and new approach
-    - Before/after code examples
-    - Why the change was needed (JAR not supported, etc.)
-    - Risk level and testing notes
+    1. Each replaced library with original usage and new approach
+    2. Before/after code examples
+    3. Why the change was needed (JAR not supported, etc.)
+    4. Risk level and testing notes
 
 9. Repo-side change manifest
-    - Files changed in Azure DevOps repo (job JSON, PowerShell script)
-    - Variable group changes (if any)
-    - Deployment verification checklist
+    1. Files changed in Azure DevOps repo (job JSON, PowerShell script)
+    2. Variable group changes (if any)
+    3. Deployment verification checklist
 
 ### 2.3 Prompts (6 files)
 
