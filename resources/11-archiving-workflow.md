@@ -4,13 +4,46 @@ This guide defines the standard process for archiving original notebooks before 
 
 ---
 
+## Molina's Archiving Model
+
+Molina uses two archiving mechanisms, and they serve different purposes:
+
+### 1. Git-Based Archiving (Primary — Source of Truth)
+
+The Azure DevOps repo IS the archive. Original code lives on the main/release branch. Migration changes go on feature branches. The original code is preserved in git history.
+
+```
+Azure DevOps Repo:
+├── main (or release branch)           ← Original code = the archive
+├── migration/batch_01/job_name_1      ← Feature branch with changes
+├── migration/batch_01/job_name_2
+└── ...
+```
+
+**This is the source of truth.** Repo files have `%placeholder%` tokens — they're parameterized and environment-portable. All migration changes are committed here.
+
+### 2. Workspace Staging (Secondary — For Testing Only)
+
+Genie Code creates staging copies in the UAT workspace for validation testing. These copies have hardcoded environment values (from CI/CD deployment) and are **temporary and disposable**.
+
+```
+/Workspace/Migration/staging/{job_name}/
+├── notebook_1.py              ← Modified copy with hardcoded UAT values
+├── notebook_2.py              ← NOT for committing back to repo
+└── change_manifest.md         ← The change report (THIS goes to the developer)
+```
+
+**Never commit workspace staging files to the repo.** They contain resolved environment values (`uat_catalog` instead of `%env_name%_catalog`) that would break other environments.
+
+---
+
 ## Why Archive
 
-1. **Rollback safety** — If migration fails, the original is untouched
-2. **Side-by-side comparison** — Reviewers can diff original vs migrated
-3. **Audit trail** — Regulated healthcare data requires change documentation
-4. **Parallel SIT** — Original job can continue running while migrated job is tested
-5. **Conversion report** — The report skill reads both versions to generate the diff
+1. **Rollback safety** — If migration fails, the original is on the main branch in the repo
+2. **Side-by-side comparison** — Reviewers can diff the feature branch PR against main
+3. **Audit trail** — Regulated healthcare data requires change documentation (the PR + conversion report)
+4. **Parallel SIT** — Original job continues running from main branch deployment while migrated job is tested from staging copies
+5. **Conversion report** — Generated from comparing workspace originals vs staging copies
 
 ---
 

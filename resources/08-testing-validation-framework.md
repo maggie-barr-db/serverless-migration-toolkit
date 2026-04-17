@@ -1,94 +1,208 @@
 # Testing and Validation Framework
 
-This guide covers the complete testing workflow for all migration paths: archiving, parallel testing, SIT comparison, test coverage creation, and the validation checks that must pass before a migrated job goes to production.
+This guide covers the complete testing workflow for all migration paths, designed for Molina's environment: Azure DevOps CI/CD with one-directional deployment to Databricks workspaces, no dev environment, UAT as the primary testing environment, and promotion to PROD via CI/CD.
 
 ---
 
-## 1. Archiving Original Notebooks
+## 1. Environment Promotion Workflow
 
-Before Genie Code modifies any notebook, the original must be archived for side-by-side comparison and rollback.
+Migrations happen in UAT, get committed to the repo, and promote to PROD via CI/CD. **Code changes never happen directly in PROD.**
 
-### Archiving Process
+### The Parameterization Problem
+
+Molina's CI/CD pipeline deploys notebooks and job JSONs to the Databricks workspace via a PowerShell script that replaces `%placeholder%` tokens with environment-specific values (e.g., `%env_name%` → `uat`, `%eim_wsp%` → the actual workspace path). This means:
+
+- **Repo source files** have `%env_name%`, `%eim_wsp%`, etc. — parameterized and portable
+- **Deployed workspace files** have `uat_catalog`, the full workspace path, etc. — hardcoded for that environment
+
+**You cannot export notebooks from the workspace back to the repo.** The hardcoded environment values would break in other environments. The path back to the repo must always go through the change manifest.
+
+### Genie Code's Role: Assess and Prescribe
+
+Genie Code operates as an **advisor, not an editor** for the repo source files:
+
+1. **Reads** deployed notebooks in the UAT workspace (hardcoded values are fine for analysis)
+2. **Produces a change manifest** — specific cell/line changes with before/after code
+3. **Applies changes to staging copies** in the workspace for testing (these are throwaway copies)
+4. **Never exports** modified workspace files back to the repo
+
+The **developer** takes the change manifest and applies the edits to the repo source files (which still have `%placeholder%` tokens intact).
+
+### End-to-End Workflow
 
 ```
-For each job being migrated:
-1. Identify all notebooks referenced by the job (tasks + %run dependencies)
-2. Create an archive folder: /Workspace/Archive/migration_2026/{job_name}/original/
-3. Copy each notebook to the archive folder (preserving folder structure)
-4. Record the notebook paths and last-modified timestamps
-5. Create the working copy: /Workspace/Archive/migration_2026/{job_name}/migrated/
-6. All modifications happen ONLY in the migrated copy
+Step 1: CI/CD deploys current repo code to UAT workspace
+        (normal deployment — placeholders resolved to UAT values)
+
+Step 2: Genie Code reads deployed notebooks in UAT
+        Produces change manifest:
+        ┌─────────────────────────────────────────────┐
+        │ CHANGE MANIFEST                              │
+        │                                              │
+        │ Notebook: .../nyher_member_qa                │
+        │ Cell 5, Line 12:                             │
+        │   BEFORE: CAST(claim_date AS TIMESTAMP)      │
+        │   AFTER:  TRY_CAST(claim_date AS TIMESTAMP)  │
+        │                                              │
+        │ Cell 8, Line 3:                              │
+        │   BEFORE: spark.conf.set("spark.sql.ansi...  │
+        │   AFTER:  [REMOVE THIS LINE]                 │
+        │                                              │
+        │ Cell 12, Line 1:                             │
+        │   BEFORE: REFRESH TABLE uat_catalog.schema.. │
+        │   AFTER:  [REMOVE THIS LINE]                 │
+        └─────────────────────────────────────────────┘
+
+Step 3: Genie Code applies changes to STAGING copies in workspace
+        /Workspace/Migration/staging/{job_name}/
+        (for testing only — these copies are throwaway)
+
+Step 4: Run migrated job from staging folder
+        Job writes to: uat_catalog.{schema}.{table}
+        Validate output against production baseline
+
+Step 5: Developer applies change manifest to REPO source files
+        (repo files still have %eim_wsp%, %env_name% placeholders)
+        Commit to feature branch in Azure DevOps
+
+Step 6: CI/CD redeploys from repo to UAT
+        (confirms the repo version matches what was tested)
+
+Step 7: Re-run validation
+        (confirms CI/CD-deployed version produces same output)
+
+Step 8: PR merged → CI/CD deploys to PROD
+        First PROD run monitored closely
 ```
 
-### Archive Naming Convention
+**Steps 6-7 are critical** — they close the loop and confirm that the repo version (with placeholder substitution) produces the same results as the staging version that was tested directly.
+
+---
+
+## 2. Archiving and Source of Truth
+
+### Git-Based Archiving (Primary for Molina)
+
+The Azure DevOps repo IS the archive. Original code lives on the main/release branch; migration changes live on a feature branch.
 
 ```
-/Workspace/Archive/migration_2026/
+Azure DevOps Repo:
+├── main (or release branch)          ← Original code (the archive)
+├── migration/batch_01/job_name_1     ← Feature branch with changes
+├── migration/batch_01/job_name_2     ← Feature branch with changes
+└── ...
+```
+
+The developer creates the feature branch, applies the change manifest, and submits a PR. The original code is preserved in git history.
+
+### Workspace Staging (For Testing Only)
+
+Genie Code creates staging copies in the workspace for testing. These are **temporary and disposable** — they exist only to validate the changes before the developer commits them to the repo.
+
+```
+/Workspace/Migration/staging/
 ├── {job_name}/
-│   ├── original/              ← Untouched copies of the original notebooks
-│   │   ├── notebook_1.py
-│   │   ├── notebook_2.py
-│   │   └── utils/
-│   │       └── helpers.py
-│   ├── migrated/              ← Working copies with all changes applied
-│   │   ├── notebook_1.py
-│   │   ├── notebook_2.py
-│   │   └── utils/
-│   │       └── helpers.py
-│   ├── validation/            ← Validation notebooks and reports
-│   │   ├── validate_outputs.py
-│   │   └── conversion_report.py
-│   └── manifest.json          ← Metadata about the migration
+│   ├── notebook_1.py             ← Modified copy (hardcoded UAT values — NOT for repo)
+│   ├── notebook_2.py
+│   └── change_manifest.md        ← What changed and why (THIS goes to the developer)
 ```
 
-### manifest.json Template
-
-```json
-{
-  "job_id": "123456789",
-  "job_name": "daily_claims_pipeline",
-  "migration_path": "C",
-  "source_dbr": "13.3 LTS",
-  "target_compute": "serverless_env_v4",
-  "notebooks": [
-    {
-      "original_path": "/Repos/production/claims/01_bronze",
-      "archive_path": "/Archive/migration_2026/daily_claims_pipeline/original/01_bronze",
-      "migrated_path": "/Archive/migration_2026/daily_claims_pipeline/migrated/01_bronze",
-      "language": "python",
-      "last_modified": "2026-03-15T10:30:00Z"
-    }
-  ],
-  "output_tables": [
-    "prod_catalog.claims.claims_bronze",
-    "prod_catalog.claims.claims_silver",
-    "prod_catalog.claims.claims_gold_summary"
-  ],
-  "baseline_versions": {
-    "prod_catalog.claims.claims_bronze": 42,
-    "prod_catalog.claims.claims_silver": 38,
-    "prod_catalog.claims.claims_gold_summary": 35
-  },
-  "migration_started": "2026-04-16T09:00:00Z",
-  "migration_completed": null,
-  "validation_status": "pending"
-}
-```
+**Never commit workspace staging files to the repo.** They contain hardcoded environment values.
 
 ---
 
-## 2. Recording Baseline Delta Table Versions
+## 3. Cross-Catalog Validation (UAT vs PROD)
+
+The primary validation compares migrated job output in UAT against the production baseline.
+
+### Approach A: Cross-Catalog Comparison (Recommended)
+
+```
+Original job (classic compute) writes to:  prod_catalog.{schema}.{table}
+Migrated job (serverless) writes to:       uat_catalog.{schema}.{table}
+
+Compare tables across catalogs.
+```
+
+```python
+# Cross-catalog comparison
+original_df = spark.table("prod_catalog.claims.claims_silver")
+migrated_df = spark.table("uat_catalog.claims.claims_silver")
+
+# Run all validation checks (see Section 5)
+```
+
+**Pros:** Production data is completely untouched. UAT is isolated.
+**Cons:** Input data may differ between environments. Must ensure same source data or account for differences.
+
+**Handling input data differences:** If UAT and PROD have different source data volumes, focus validation on:
+- Schema match (exact)
+- Null count ratios (proportional, not absolute)
+- Distinct value sets (should match if same reference data)
+- Sample row-level comparison on overlapping data
+
+### Approach B: Time Travel within UAT (For Iterative Testing)
+
+```
+1. Run original job (classic compute) in UAT → record baseline version
+2. Run migrated job (serverless) in UAT → overwrites same tables
+3. Compare current version vs baseline via Delta time travel
+```
+
+```python
+# Record baseline BEFORE migrated run
+baseline_version = spark.sql(
+    "DESCRIBE HISTORY uat_catalog.claims.claims_silver LIMIT 1"
+).select("version").collect()[0][0]
+
+# After migrated run:
+original_df = spark.read.format("delta") \
+    .option("versionAsOf", baseline_version) \
+    .table("uat_catalog.claims.claims_silver")
+migrated_df = spark.table("uat_catalog.claims.claims_silver")
+```
+
+**Pros:** Same input data guaranteed. Apples-to-apples comparison.
+**Cons:** Original UAT data overwritten. Must validate within retention period.
+
+### Approach C: Post-Deployment PROD Validation (After Cutover)
+
+After CI/CD deploys to PROD, validate the first run:
+
+```
+1. Record pre-migration PROD table versions (time travel baseline)
+2. CI/CD deploys migrated job to PROD
+3. First PROD run executes
+4. Compare current PROD output vs pre-migration baseline via time travel
+```
+
+**This is the final gate.** If validation fails in PROD, roll back by redeploying the previous job JSON from the repo's main branch.
+
+### Recommended Sequence
+
+| Phase | Environment | Approach | Purpose |
+|-------|-------------|----------|---------|
+| Development | UAT | B (time travel within UAT) | Iterative testing while Genie Code makes changes |
+| Pre-commit validation | UAT vs PROD | A (cross-catalog) | Confirm migrated output matches production |
+| Post-CI/CD validation | UAT | B (time travel) | Confirm repo version matches staging version |
+| Production cutover | PROD | C (time travel) | Final gate after CI/CD deploys to PROD |
+
+---
+
+## 4. Recording Baseline Delta Table Versions
 
 Before running the migrated job, record the current version of every output table.
 
 ```python
 # Run this BEFORE the migrated job executes
-from delta.tables import DeltaTable
+# Can run against either uat_catalog or prod_catalog depending on the phase
+
+catalog = dbutils.widgets.get("catalog")  # "uat_catalog" or "prod_catalog"
 
 output_tables = [
-    "prod_catalog.claims.claims_bronze",
-    "prod_catalog.claims.claims_silver",
-    "prod_catalog.claims.claims_gold_summary"
+    f"{catalog}.claims.claims_bronze",
+    f"{catalog}.claims.claims_silver",
+    f"{catalog}.claims.claims_gold_summary"
 ]
 
 baseline_versions = {}
@@ -100,59 +214,7 @@ for table_name in output_tables:
         print(f"{table_name}: baseline version = {version}")
     except Exception as e:
         print(f"WARNING: Could not get history for {table_name}: {e}")
-
-# Save these version numbers — you need them for time-travel comparison later
 ```
-
----
-
-## 3. Parallel SIT Testing Strategy
-
-The original job and new job run in parallel to ensure no schema changes, table name changes, or data mismatches.
-
-### Approach A: Side-by-Side Schemas (Recommended for Development)
-
-```
-Original job writes to:  prod_catalog.claims.*
-Migrated job writes to:  test_catalog.claims_migration.*
-
-Compare tables across schemas.
-```
-
-**Pros:** Original data is completely untouched. Safe to re-run.
-**Cons:** Requires duplicate storage. Must ensure same input data.
-
-### Approach B: Time Travel (Recommended for Final Validation)
-
-```
-1. Record baseline versions (original job's output)
-2. Run migrated job (overwrites same tables)
-3. Compare current version against baseline version via Delta time travel
-```
-
-**Pros:** No duplicate storage. Validates in the real environment.
-**Cons:** Original data is overwritten. Must complete validation within retention period (30 days default).
-
-### Approach C: Snapshot Comparison (Recommended for Production Cutover)
-
-```
-1. Original job runs on schedule → writes to prod tables
-2. Migrated job runs immediately after → writes to staging tables
-3. Compare prod tables against staging tables
-4. After N successful comparisons, swap migrated job to prod
-```
-
-**Pros:** Real input data. Production-like conditions.
-**Cons:** Doubled compute cost during validation period.
-
-### Choosing an Approach
-
-| Scenario | Recommended Approach |
-|----------|---------------------|
-| First migration of a job | A (side-by-side) — safest |
-| Re-running after fixing issues | A or B |
-| Final validation before cutover | B (time travel) |
-| Ongoing production validation | C (snapshot) |
 
 ---
 
@@ -508,20 +570,36 @@ Validation fails
 
 ## 10. Sign-Off Checklist
 
-Before marking a job migration as complete:
+### Gate 1: UAT Staging Validation (Genie Code changes in workspace)
 
-- [ ] Original notebooks archived at known path
-- [ ] Baseline Delta versions recorded
-- [ ] All ANSI fixes applied and documented
-- [ ] All serverless restrictions addressed
-- [ ] Spark configs migrated or removed
-- [ ] Environment variables migrated to widgets
-- [ ] Dependencies in requirements.txt (if serverless)
-- [ ] Job JSON transformed (if serverless)
-- [ ] Migrated job ran successfully on target compute
-- [ ] ALL validation checks passed for ALL output tables
+- [ ] Genie Code assessment completed (resource 19)
+- [ ] Change manifest produced with all findings
+- [ ] Staging copies created in `/Workspace/Migration/staging/`
+- [ ] Migrated job ran successfully on serverless in UAT
+- [ ] Validation checks passed: UAT migrated output vs baseline
+
+### Gate 2: Repo Commit (Developer applies changes)
+
+- [ ] Developer applied change manifest to repo source files
+- [ ] Repo source files still have `%placeholder%` tokens (not hardcoded values)
+- [ ] Job JSON updated (serverless environments block, parameters, etc.)
+- [ ] PowerShell script has `%env_name%` replacement
+- [ ] Feature branch committed to Azure DevOps
+
+### Gate 3: CI/CD Round-Trip Validation (Confirms repo version works)
+
+- [ ] CI/CD deployed feature branch to UAT
+- [ ] Job ran successfully on serverless from CI/CD-deployed version
+- [ ] Validation checks passed: CI/CD version output matches staging version output
+- [ ] Job ID preserved (not recreated)
 - [ ] Performance within acceptable range (< 2x classic)
-- [ ] Conversion report generated
-- [ ] Test coverage added (if missing in git repo)
-- [ ] Parallel SIT run completed with matching results
-- [ ] Developer reviewed and approved the conversion report
+
+### Gate 4: Production Cutover
+
+- [ ] PR reviewed and approved
+- [ ] PR merged to main/release branch
+- [ ] CI/CD deployed to PROD
+- [ ] First PROD run monitored
+- [ ] Post-PROD validation passed (time travel comparison against pre-migration baseline)
+- [ ] Conversion report generated and archived
+- [ ] Staging workspace copies cleaned up
