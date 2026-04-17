@@ -297,12 +297,64 @@ Run the pipeline on 16.4 and compare output to 13.3 baseline using the `conversi
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| ArithmeticException on divide | ANSI mode enabled | Set `spark.sql.ansi.enabled=false` or fix divide-by-zero in code |
-| NumberFormatException on cast | ANSI mode enabled | Set ANSI=false or use `try_cast()` |
+| ArithmeticException on divide | ANSI mode enabled | Fix divide-by-zero in code with TRY_DIVIDE or null guard. Do NOT use `spark.sql.ansi.enabled=false` as a permanent fix. |
+| NumberFormatException on cast | ANSI mode enabled | Use `TRY_CAST()` instead of `CAST()`. Do NOT use ANSI=false as a permanent fix. |
 | Different partition counts | AQE improvements | Usually better — only investigate if output differs |
 | UDF returns different nulls | Arrow-based UDF changes | Check null handling in UDFs explicitly |
 | "Config X not found" | Removed config | Remove the config from code |
 | Delta protocol error | Auto-upgraded protocol | Downgrade protocol or accept new version |
+
+## Automated Code Scanning (F9)
+
+For automated scanning of notebooks, use the structured regex patterns in `resources/15-breaking-changes-13-to-16-regex.md`. This file contains 33 patterns organized by severity (CRITICAL / HIGH / MEDIUM / LOW) with machine-readable JSON format for tooling integration.
+
+Key pattern categories:
+- **CRITICAL (10 patterns):** ANSI casts, division, boolean comparisons, array/map access, unsupported configs, REFRESH/MSCK
+- **HIGH (10 patterns):** persist/cache, RDD APIs, env vars, libraries, materialized views, format string bugs
+- **MEDIUM (8 patterns):** SELECT *, threading, /tmp paths, schema inference, chained withColumn
+- **LOW (5 patterns):** count anti-patterns, ZORDER, manual partitioning
+
+## Scan Checklist (F10)
+
+When upgrading a notebook from 13.3 to 16.4, run all checks in this order:
+
+### Pass 1: CRITICAL — Will cause runtime failures
+- [ ] Scan for `CAST()` → replace with `TRY_CAST()` (SQL) or add guards (PySpark/Scala)
+- [ ] Scan for division operations → add `TRY_DIVIDE()` or null guards
+- [ ] Scan for `BOOLEAN = 0/1` comparisons → replace with `IS TRUE` / `IS NOT TRUE`
+- [ ] Scan for array bracket access → add bounds check or `TRY_ELEMENT_AT`
+- [ ] Scan for map bracket access → add key check or `TRY_ELEMENT_AT`
+- [ ] Scan for `to_date()` / `to_timestamp()` → replace with `try_to_date()` / `try_to_timestamp()`
+- [ ] Scan for unsupported Spark configs → remove or replace per `resources/05-spark-config-classic-to-serverless.md`
+- [ ] Scan for `REFRESH TABLE` / `MSCK REPAIR TABLE` → remove
+
+### Pass 2: HIGH — Likely to cause failures
+- [ ] Scan for `.persist()` / `.cache()` → remove (serverless auto-manages)
+- [ ] Scan for RDD APIs → rewrite as DataFrame operations
+- [ ] Scan for `os.environ.get()` → migrate to `dbutils.widgets.get()`
+- [ ] Scan for `dbutils.library.install` → move to requirements.txt
+- [ ] Scan for `com.crealytics.spark.excel` → replace with pandas + openpyxl
+- [ ] Scan for `spark.sql.ansi.enabled = false` → remove, fix code instead
+- [ ] Scan for `f.lit()` wrapping format strings in `to_date`/`to_timestamp` → remove `f.lit()` wrapper
+
+### Pass 3: MEDIUM — May cause issues depending on data
+- [ ] Review `SELECT *` usage → use explicit column lists (especially with row filters)
+- [ ] Flag `ThreadPoolExecutor` / `concurrent.futures` → warn about serverless performance
+- [ ] Check for `/tmp/` file paths → use `/local_disk0/tmp/`
+- [ ] Flag `spark.createDataFrame()` without explicit schema → add StructType
+- [ ] Count `.withColumn()` chains → replace with `.withColumns()` if >20 in a cell
+
+### Pass 4: LOW — Performance and informational
+- [ ] Flag `.count() > 0` patterns → replace with `.first() is not None`
+- [ ] Note ZORDER usage → recommend awareness of Liquid Clustering (GA) for future
+- [ ] Flag manual `spark.sql.shuffle.partitions` → serverless auto-tunes
+
+## Cross-References
+
+- ANSI compliance fix patterns: `resources/07-ansi-compliance-reference.md`
+- Spark config migration map: `resources/05-spark-config-classic-to-serverless.md`
+- Breaking changes regex patterns: `resources/15-breaking-changes-13-to-16-regex.md`
+- Known issues from Molina: `resources/13-serverless-known-issues.md`
 
 ## What Stays the Same
 

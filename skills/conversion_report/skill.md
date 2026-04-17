@@ -230,6 +230,102 @@ If you are the one performing the conversion (using the `scala_to_pyspark` and `
 
 Generate the report as a Databricks notebook with markdown cells for readability. It should be committed alongside the converted pipeline so reviewers can read it before approving the migration.
 
+## 7. Serverless-Specific Change Section (F7)
+
+When the migration includes a move to serverless compute, add this section to the report:
+
+### 7a. Job JSON Transformation
+
+Document the before/after job JSON changes:
+- `job_clusters` section removed
+- `job_cluster_key` removed from each task
+- `environment_key` added to each task
+- `environments` block added with client version and dependencies path
+- `parameters` block added (PATH_LANDING, PATH_DATALAKE) with `%env_name%` substitution
+- `queue` and `performance_optimized` settings added
+
+Reference: `resources/16-cicd-change-guide.md`
+
+### 7b. Environment Variable Migration
+
+For each `os.environ.get()` or `os.environ[]` found in notebook code:
+- Original code
+- Converted code using `dbutils.widgets.get()`
+- Which job parameter supplies the value
+
+### 7c. Spark Config Removals
+
+For each Spark config removed or changed:
+- Config name and original value
+- Why it was removed (unsupported on serverless, default on serverless, etc.)
+- Whether the removal changes behavior or is transparent
+
+Reference: `resources/05-spark-config-classic-to-serverless.md`
+
+### 7d. Unsupported Operation Removals
+
+For each unsupported operation removed:
+- Original code (REFRESH TABLE, MSCK REPAIR, .persist(), etc.)
+- What replaced it (removed, rewritten, or moved to SQL Warehouse)
+- Behavioral impact
+
+## 8. Library Replacement Section (F8)
+
+Document every library that was replaced during migration:
+
+```
+Library Replacement: com.crealytics.spark.excel
+================================================
+Original: df.write.format("com.crealytics.spark.excel").save(path)
+Replaced with: pandas + openpyxl via /local_disk0/tmp → Volume → abfss://
+
+Code change:
+  - Cell 15: Replaced spark.excel write with pandas to_excel()
+  - Cell 16: Added dbutils.fs.cp from volume to abfss://
+
+Reason: JAR libraries not supported on serverless compute
+Risk: LOW — output format identical, tested with sample data
+```
+
+For each replacement, include:
+- Original library and usage
+- Replacement approach with code
+- Why the change was needed
+- Risk level and testing notes
+
+Reference: `resources/06-package-dependency-analysis.md`
+
+## 9. Repo-Side Change Manifest (F9)
+
+Document all changes that were made in the Azure DevOps repository (not in Databricks):
+
+```
+REPO-SIDE CHANGES
+=================
+Repository: [Azure DevOps repo name]
+Branch: migration/batch_X/<job_name>
+
+Files Changed:
+  1. deployment/config/jobs/<job_name>.json
+     - Removed job_clusters section
+     - Added environments block with serverless config
+     - Added parameters block with PATH_LANDING, PATH_DATALAKE
+     
+  2. deployment/scripts/deploy_report_workflow_jobs.ps1
+     - Added %env_name% replacement (line 109)
+
+Variable Group Changes:
+  - No changes needed (env_name already exists)
+
+Deployment Verification:
+  - [ ] Deployed to UAT via pipeline
+  - [ ] Job ID preserved (not recreated)
+  - [ ] Volume path resolves correctly
+  - [ ] Requirements.txt picked up by serverless
+```
+
+Reference: `resources/16-cicd-change-guide.md`
+
 ## Report Checklist
 
 Before finalizing the report, verify:
@@ -240,3 +336,13 @@ Before finalizing the report, verify:
 - [ ] Risk levels are assigned to all changes
 - [ ] The executive summary totals match the detailed change count
 - [ ] High-risk changes have mitigation steps or validation references
+- [ ] (If serverless) Serverless-specific section included (F7)
+- [ ] (If serverless) Library replacements documented (F8)
+- [ ] (If serverless) Repo-side change manifest included (F9)
+
+## Cross-References
+
+- CI/CD change guide: `resources/16-cicd-change-guide.md`
+- Spark config migration: `resources/05-spark-config-classic-to-serverless.md`
+- Package dependency analysis: `resources/06-package-dependency-analysis.md`
+- Serverless known issues: `resources/13-serverless-known-issues.md`

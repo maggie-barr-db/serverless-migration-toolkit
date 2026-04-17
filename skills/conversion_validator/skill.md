@@ -820,3 +820,164 @@ Create a validation notebook with this structure:
 10. **Detail output:** For failures, show sample mismatched rows with input context
 
 The notebook should be parameterized so it can be reused across different conversion runs.
+
+---
+
+## Serverless-Specific Checks (F15-F18)
+
+These checks apply only when the migration target is serverless compute. Run them in addition to Checks 1-14.
+
+### Check 15: Serverless Compute Verification (F15)
+
+Confirm the migrated job actually ran on serverless compute, not classic.
+
+```python
+import requests
+
+run_id = dbutils.widgets.get("run_id")
+host = spark.conf.get("spark.databricks.workspaceUrl")
+token = dbutils.notebook.entry_point.getDbutils().notebook().getContext().apiToken().get()
+
+response = requests.get(
+    f"https://{host}/api/2.1/jobs/runs/get",
+    headers={"Authorization": f"Bearer {token}"},
+    params={"run_id": run_id}
+)
+run_details = response.json()
+
+for task in run_details.get("tasks", []):
+    task_key = task.get("task_key", "unknown")
+    env_key = task.get("environment_key")
+    if env_key:
+        print(f"PASS: Task '{task_key}' ran with environment_key='{env_key}' (serverless)")
+    elif task.get("cluster_instance", {}).get("cluster_id"):
+        print(f"FAIL: Task '{task_key}' ran on classic cluster, not serverless")
+    else:
+        print(f"WARN: Task '{task_key}' — unable to determine compute type")
+```
+
+**Pass criteria:** Every task has an `environment_key` and no `cluster_id`.
+
+### Check 16: Config Compliance Check (F16)
+
+Verify no unsupported Spark configs were set during the run. Unsupported configs on serverless either silently fail or throw `CONFIG_NOT_AVAILABLE`.
+
+```python
+# Check the notebook code for any spark.conf.set calls that are unsupported
+unsupported_prefixes = [
+    "spark.executor.", "spark.driver.extra", "spark.dynamicAllocation.",
+    "spark.shuffle.service.", "spark.hadoop.", "spark.serializer",
+    "spark.sql.warehouse.dir", "spark.databricks.cluster.",
+    "spark.databricks.passthrough.", "fs.azure.", "fs.s3a.",
+    "spark.databricks.delta.retentionDurationCheck.enabled",
+    "spark.databricks.delta.schema.autoMerge.enabled",
+    "spark.sql.broadcastTimeout", "spark.sql.caseSensitive",
+    "spark.sql.streaming.stateStore.stateSchemaCheck",
+]
+
+# If you have access to the notebook source, scan for these patterns
+# If checking post-run, verify the job completed without CONFIG_NOT_AVAILABLE errors
+print("Check run logs for [CONFIG_NOT_AVAILABLE] errors")
+print(f"Unsupported config prefixes to scan: {len(unsupported_prefixes)}")
+```
+
+**Pass criteria:** No `CONFIG_NOT_AVAILABLE` errors in the run logs. No unsupported configs set in notebook code.
+
+### Check 17: Environment Key Verification (F17)
+
+Confirm every task in the job JSON has an `environment_key` and the environments block is properly configured.
+
+```python
+response = requests.get(
+    f"https://{host}/api/2.1/jobs/get",
+    headers={"Authorization": f"Bearer {token}"},
+    params={"job_id": dbutils.widgets.get("job_id")}
+)
+job_config = response.json()
+
+# Check tasks
+tasks_without_env_key = []
+for task in job_config.get("settings", {}).get("tasks", []):
+    if "environment_key" not in task:
+        tasks_without_env_key.append(task.get("task_key", "unknown"))
+
+if tasks_without_env_key:
+    print(f"FAIL: Tasks missing environment_key: {tasks_without_env_key}")
+else:
+    print(f"PASS: All {len(job_config['settings']['tasks'])} tasks have environment_key")
+
+# Check environments block
+environments = job_config.get("settings", {}).get("environments", [])
+if not environments:
+    print("FAIL: No environments block in job config")
+else:
+    for env in environments:
+        client = env.get("spec", {}).get("client", "unknown")
+        deps = env.get("spec", {}).get("dependencies", [])
+        print(f"PASS: Environment '{env.get('environment_key')}' — client={client}, dependencies={len(deps)}")
+        # Verify dependencies path resolves
+        for dep in deps:
+            if "%env_name%" in dep or "%env%" in dep:
+                print(f"  FAIL: Unresolved placeholder in dependency: {dep}")
+            else:
+                print(f"  OK: {dep}")
+```
+
+**Pass criteria:** All tasks have `environment_key`. Environments block exists with client "4". No unresolved `%env_name%` placeholders.
+
+### Check 18: Performance Comparison (F18)
+
+Compare classic compute vs serverless execution metrics to detect regressions.
+
+```python
+classic_run_id = dbutils.widgets.get("classic_run_id")
+serverless_run_id = dbutils.widgets.get("serverless_run_id")
+
+# Get task-level durations from both runs
+def get_task_durations(run_id):
+    resp = requests.get(
+        f"https://{host}/api/2.1/jobs/runs/get",
+        headers={"Authorization": f"Bearer {token}"},
+        params={"run_id": run_id}
+    )
+    run = resp.json()
+    durations = {}
+    for task in run.get("tasks", []):
+        task_key = task.get("task_key")
+        start = task.get("start_time", 0)
+        end = task.get("end_time", 0)
+        if start and end:
+            durations[task_key] = (end - start) / 1000 / 60  # minutes
+    return durations
+
+classic = get_task_durations(classic_run_id)
+serverless = get_task_durations(serverless_run_id)
+
+print("PERFORMANCE COMPARISON")
+print(f"{'Task':<40} {'Classic (min)':<15} {'Serverless (min)':<18} {'Ratio':<8} {'Status'}")
+print("=" * 95)
+
+regressions = 0
+for task_key in sorted(set(list(classic.keys()) + list(serverless.keys()))):
+    c_min = classic.get(task_key, 0)
+    s_min = serverless.get(task_key, 0)
+    ratio = s_min / c_min if c_min > 0 else float('inf')
+    status = "PASS" if ratio <= 2.0 else "REGRESSION"
+    if status == "REGRESSION":
+        regressions += 1
+    print(f"{task_key:<40} {c_min:<15.1f} {s_min:<18.1f} {ratio:<8.2f} {status}")
+
+print(f"\nRegressions (>2x): {regressions}")
+if regressions == 0:
+    print("PASS: No significant performance regressions")
+else:
+    print(f"WARN: {regressions} task(s) with >2x runtime increase — investigate before production cutover")
+```
+
+**Pass criteria:** No task exceeds 2x the classic compute runtime. Minor increases (< 2x) are informational.
+
+## Cross-References
+
+- Serverless known issues: `resources/13-serverless-known-issues.md`
+- Testing and validation framework: `resources/08-testing-validation-framework.md`
+- Performance optimization patterns: `resources/09-performance-optimization-patterns.md`

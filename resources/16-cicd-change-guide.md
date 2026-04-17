@@ -33,28 +33,33 @@ Azure DevOps Pipeline
 
 ```json
 {
-  "name": "wf_hp_reporting_ny_nyher_qa",
+  "name": "<job_name>",
+  "email_notifications": {
+    "no_alert_for_skipped_runs": false
+  },
+  "webhook_notifications": {},
+  "timeout_seconds": 0,
+  "max_concurrent_runs": 1,
   "tasks": [
     {
-      "task_key": "nyher_member_qa",
+      "task_key": "<task_key>",
       "notebook_task": {
-        "notebook_path": "%eim_wsp%/NY/srccode/wf_hp_reporting_ny_nyher_qa/nyher_member_qa",
+        "notebook_path": "%eim_wsp%/<state>/srccode/<job_folder>/<notebook_name>",
         "source": "WORKSPACE"
       },
-      "job_cluster_key": "report_cluster",
+      "job_cluster_key": "Job_cluster",
       "timeout_seconds": 0,
       "email_notifications": {}
     }
   ],
   "job_clusters": [
     {
-      "job_cluster_key": "report_cluster",
+      "job_cluster_key": "Job_cluster",
       "new_cluster": {
         "spark_version": "%spark_version_11%",
-        "node_type_id": "%node_type_id%",
-        "driver_node_type_id": "%driver_node_type_id%",
-        "num_workers": 2,
-        "policy_id": "%reporting_small_cluster_policy_id%"
+        "node_type_id": "%uc_reporting_node_type_id%",
+        "driver_node_type_id": "%uc_reporting_driver_node_type_id%",
+        "policy_id": "%uc_reporting_small_cluster_policy_id%"
       }
     }
   ],
@@ -66,18 +71,28 @@ Azure DevOps Pipeline
 
 ```json
 {
-  "name": "wf_hp_reporting_ny_nyher_qa",
+  "name": "<job_name>",
   "email_notifications": {
     "no_alert_for_skipped_runs": false
   },
   "webhook_notifications": {},
   "timeout_seconds": 0,
   "max_concurrent_runs": 1,
+  "parameters": [
+    {
+      "name": "PATH_LANDING",
+      "default": "abfss://landingzone@dataingestion%env_name%adlsg2.dfs.core.windows.net/"
+    },
+    {
+      "name": "PATH_DATALAKE",
+      "default": "abfss://eim-datalake-%env_name%@scadlsg2datbks%env_name%.dfs.core.windows.net/"
+    }
+  ],
   "tasks": [
     {
-      "task_key": "nyher_member_qa",
+      "task_key": "<task_key>",
       "notebook_task": {
-        "notebook_path": "%eim_wsp%/NY/srccode/wf_hp_reporting_ny_nyher_qa/nyher_member_qa",
+        "notebook_path": "%eim_wsp%/<state>/srccode/<job_folder>/<notebook_name>",
         "source": "WORKSPACE"
       },
       "environment_key": "serverless_environment_v1",
@@ -109,13 +124,39 @@ Azure DevOps Pipeline
 | Change | Before | After |
 |--------|--------|-------|
 | **Remove** `job_clusters` section | Present | Removed entirely |
-| **Remove** `job_cluster_key` from tasks | `"job_cluster_key": "report_cluster"` | Removed |
+| **Remove** `job_cluster_key` from tasks | `"job_cluster_key": "Job_cluster"` | Removed |
+| **Add** `parameters` block | Not present | Job-level parameters for PATH_LANDING, PATH_DATALAKE with `%env_name%` substitution |
 | **Add** `environment_key` to each task | Not present | `"environment_key": "serverless_environment_v1"` |
 | **Add** `environments` block | Not present | Environment spec with client "4" and dependencies |
 | **Add** `queue` | Not present | `"queue": {"enabled": true}` |
 | **Add** `performance_optimized` | Not present | `"performance_optimized": true` |
-| **Add** `%env_name%` placeholder | Not used | In Volume path for requirements.txt |
+| **Add** `%env_name%` placeholder | Not used | In Volume path, PATH_LANDING, and PATH_DATALAKE |
 | **Remove** cluster-specific placeholders | `%spark_version_11%`, `%node_type_id%`, etc. | Not needed |
+
+### Job-Level Parameters
+
+The `parameters` block defines job-level parameters with environment-specific defaults. These are automatically available in notebooks via `dbutils.widgets.get()`:
+
+```python
+# In the notebook — replaces os.environ.get() calls:
+path_landing = dbutils.widgets.get("PATH_LANDING")
+path_datalake = dbutils.widgets.get("PATH_DATALAKE")
+```
+
+The `%env_name%` placeholder in the parameter defaults gets resolved by the PowerShell deployment script before the JSON is sent to the Databricks API. For UAT, `PATH_LANDING` resolves to:
+```
+abfss://landingzone@dataingestionuatadlsg2.dfs.core.windows.net/
+```
+
+### Where %env_name% Appears
+
+The `%env_name%` placeholder now appears in three locations in the JSON:
+
+1. **Requirements.txt path:** `/Volumes/%env_name%_catalog/default/serverless_dependencies/...`
+2. **PATH_LANDING default:** `dataingestion%env_name%adlsg2`
+3. **PATH_DATALAKE default:** `datalake-%env_name%` and `datbks%env_name%`
+
+All three are handled by a single `.Replace("%env_name%","$env_name")` call in the PowerShell script.
 
 ---
 
@@ -257,9 +298,9 @@ When migrating multiple jobs in a batch:
 ## Serverless Migration — Batch X
 
 ### Jobs Migrated
-- wf_hp_reporting_ny_nyher_qa (545285009490448)
-- wf_ipro_member_sdoh (545285009490448)
-- [list all jobs]
+- <job_name> (<job_id>)
+- <job_name> (<job_id>)
+- [list all jobs in the batch]
 
 ### Changes
 - Updated job JSON templates: removed job_clusters, added serverless environments
