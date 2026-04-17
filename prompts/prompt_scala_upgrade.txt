@@ -1,0 +1,78 @@
+I have an existing Scala pipeline running on DBR 13.3 LTS that I need to upgrade to DBR 16.4 LTS while keeping it in Scala.
+
+## Step 1: Record Baseline
+
+Before making any changes, record the current Delta table versions for all tables in the pipeline. I need these version numbers to compare against later using time travel.
+
+For each table in the pipeline schema, run:
+```sql
+DESCRIBE HISTORY <schema>.<table> LIMIT 1;
+```
+
+Save the version numbers — these are the baseline.
+
+## Step 2: Copy the Pipeline
+
+Create copies of all Scala notebooks in the pipeline into a new folder (e.g., append `_16_4` to the folder name). Do NOT modify the originals.
+
+## Step 3: Upgrade to DBR 16.4
+
+Apply the `dbr_upgrade` skill to every copied notebook. Key changes:
+
+1. **ANSI compliance:** Do NOT set `spark.sql.ansi.enabled = false`. Instead, scan all notebooks for ANSI-sensitive patterns (casts, division, array/map access, integer overflow) and fix them using the ANSI Compliance Fixes section of the skill. Use `TRY_CAST`, `TRY_DIVIDE`, null guards, and type widening as appropriate.
+2. **Remove deprecated configs** that no longer exist in 16.4
+3. **Check for any APIs or behaviors** flagged in the skill that apply to this code
+4. **Do NOT change the language** — keep everything in Scala
+5. **Do NOT refactor or optimize** — make only the changes required for 16.4 compatibility
+
+## Step 4: Run the Upgraded Pipeline
+
+Run the upgraded notebooks on a DBR 16.4 LTS cluster. The output will overwrite the same tables that the original pipeline wrote to.
+
+## Step 5: Validate Using Time Travel
+
+Apply the `conversion_validator` skill in **time travel mode**.
+
+For each table:
+1. Load the **baseline version** (from Step 1) using `VERSION AS OF <baseline_version>`
+2. Load the **current version** (written by the upgraded pipeline)
+3. Run ALL validation checks including the full date/timestamp deep validation:
+   - Schema comparison
+   - Row count comparison
+   - Null count comparison
+   - Aggregate statistics comparison
+   - Distinct value comparison
+   - Row-by-row data comparison
+   - Date and timestamp deep validation:
+     - 7a: Identify all date/timestamp columns (including string dates)
+     - 7b: Value-by-value date comparison
+     - 7c: Timezone offset detection (dates off by exactly 1 day, timestamps off by hours)
+     - 7d: Null vs epoch zero confusion (null ↔ 1970-01-01)
+     - 7e: Date boundary cases (leap year, month-end, year rollover)
+     - 7f: Date type comparison (DATE vs TIMESTAMP in Delta schema)
+     - 7g: String date format comparison for bronze-layer columns
+
+Exclude metadata columns: `_ingestion_timestamp`, `_transform_timestamp`, `_source_file`, `_row_hash`
+
+## Step 6: Generate Conversion Report
+
+Apply the `conversion_report` skill.
+
+Read every notebook in the **original Scala 13.3 pipeline** and every notebook in the **Scala 16.4 upgraded pipeline**. Compare them cell-by-cell and generate a report with:
+
+1. **Executive summary** — total changes, breakdown by category (syntax, API, ANSI, runtime, UDF, behavioral), risk assessment
+2. **Notebook-by-notebook diff** — every change with: location, category, original code, converted code, reason, risk level, behavioral impact
+3. **ANSI compliance audit** — every ANSI-sensitive pattern found and how it was fixed (TRY_CAST, TRY_DIVIDE, null guards, type widening)
+4. **UDF conversion detail** — side-by-side comparison of every UDF with null handling analysis (if any UDFs were modified)
+5. **Date/timestamp conversion detail** — every date operation analyzed for timezone, format, and precision differences. Cross-reference with validation results from Step 5 Check 7.
+6. **Risk summary** — all changes ranked by risk (High, Medium, Low, None)
+
+Output the report as a notebook in the same folder as the upgraded pipeline.
+
+## Step 7: Print Summary
+
+Print:
+- Validation results (pass/fail per table per check)
+- Conversion report executive summary
+- Risk summary (high-risk changes only)
+- Any validation failures correlated with specific code changes from the report

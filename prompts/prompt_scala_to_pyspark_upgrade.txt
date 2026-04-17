@@ -1,0 +1,132 @@
+I have an existing Scala pipeline running on DBR 13.3 LTS that I need to convert to PySpark AND upgrade to DBR 16.4 LTS.
+
+## Context
+
+This pipeline's tables have already been written to multiple times:
+- **Version N**: Original Scala 13.3 pipeline output (the baseline)
+- **Version N+1**: Scala 16.4 upgrade output (from a previous step)
+
+The baseline version numbers from the original Scala 13.3 run should already be recorded. If not, find the correct version by checking table history:
+
+```sql
+DESCRIBE HISTORY <schema>.<table>;
+```
+
+Look for the version that corresponds to the original Scala 13.3 pipeline run — this is typically the first write. The baseline version is what we compare against at the end.
+
+## Step 1: Confirm Baseline Versions
+
+List the baseline version numbers for each table. These are the versions written by the original Scala 13.3 pipeline.
+
+For example:
+```
+claims_bronze:  version N
+claims_silver:  version N
+gold_provider_summary: version N
+gold_member_risk: version N
+gold_monthly_trend: version N
+```
+
+## Step 2: Copy and Convert Scala to PySpark
+
+Create PySpark versions of all **original Scala notebooks** (not the 16.4 upgraded versions) in a new folder (e.g., append `_pyspark` to the folder name). Do NOT modify the originals.
+
+Apply the `scala_to_pyspark` skill to convert every notebook:
+
+1. Convert all Scala syntax to PySpark (imports, `$"col"` → `F.col()`, case classes → StructType, UDFs, pattern matching, Option/Try, etc.)
+2. Follow every rule in the conversion checklist at the bottom of the skill
+3. Convert `%run` references to point to the new PySpark notebook paths
+4. Do NOT change any SQL strings — they work identically
+5. Do NOT refactor or optimize — produce a faithful translation
+
+At this point the PySpark notebooks should be functionally equivalent to the Scala originals, targeting DBR 13.3.
+
+## Step 3: Upgrade PySpark to DBR 16.4
+
+Apply the `dbr_upgrade` skill to the PySpark notebooks:
+
+1. **ANSI compliance:** Do NOT set `spark.sql.ansi.enabled = false`. Instead, scan all notebooks for ANSI-sensitive patterns (casts, division, array/map access, integer overflow) and fix them using the ANSI Compliance Fixes section of the skill. Use `TRY_CAST`, `TRY_DIVIDE`, null guards, and type widening as appropriate.
+2. **Remove deprecated configs** that no longer exist in 16.4
+3. **Check PySpark-specific changes** from the skill (Arrow-based UDFs, etc.)
+4. **Do NOT refactor or optimize** — make only the changes required for 16.4 compatibility
+
+## Step 4: Run the Converted Pipeline
+
+Run the PySpark notebooks on a DBR 16.4 LTS cluster. The output will overwrite the same tables again.
+
+After this step, the tables will have been written to THREE times:
+- **Version N**: Original Scala 13.3 (the baseline we compare against)
+- **Version N+1**: Scala 16.4 upgrade (from the previous test)
+- **Version N+2**: PySpark 16.4 (this run)
+
+## Step 5: Validate Using Time Travel
+
+Apply the `conversion_validator` skill in **time travel mode**.
+
+For each table, compare the **original Scala 13.3 baseline** (Version N) against the **current PySpark 16.4 output** (Version N+2):
+
+```python
+original_df = spark.read.format("delta").option("versionAsOf", <version_N>).table("<schema>.<table>")
+converted_df = spark.table("<schema>.<table>")
+```
+
+Run ALL validation checks including the full date/timestamp deep validation:
+1. Schema comparison
+2. Row count comparison
+3. Null count comparison
+4. Aggregate statistics comparison
+5. Distinct value comparison
+6. Row-by-row data comparison
+7. Date and timestamp deep validation:
+   - 7a: Identify all date/timestamp columns (including string dates)
+   - 7b: Value-by-value date comparison
+   - 7c: Timezone offset detection (check for dates off by exactly 1 day or timestamps off by hours)
+   - 7d: Null vs epoch zero confusion (null ↔ 1970-01-01)
+   - 7e: Date boundary cases (leap year, month-end, year rollover)
+   - 7f: Date type comparison (DATE vs TIMESTAMP in Delta schema)
+   - 7g: String date format comparison for bronze-layer columns
+
+Exclude metadata columns: `_ingestion_timestamp`, `_transform_timestamp`, `_source_file`, `_row_hash`
+
+**Important:** We are comparing Version N (Scala 13.3) to Version N+2 (PySpark 16.4), skipping Version N+1 (Scala 16.4). This validates the combined effect of the language conversion AND the runtime upgrade.
+
+## Step 6: Generate Conversion Report
+
+Apply the `conversion_report` skill.
+
+Read every notebook in the **original Scala 13.3 pipeline** and every notebook in the **PySpark 16.4 pipeline**. Compare them cell-by-cell and generate a report with:
+
+1. **Executive summary** — total changes, breakdown by category (syntax, API, ANSI, runtime, UDF, behavioral), risk assessment
+2. **Notebook-by-notebook diff** — every change with: location, category, original code, converted code, reason, risk level, behavioral impact
+3. **ANSI compliance audit** — every ANSI-sensitive pattern found and how it was fixed
+4. **UDF conversion detail** — side-by-side comparison of every UDF with null handling analysis. This is critical since every Scala UDF was rewritten in Python.
+5. **Date/timestamp conversion detail** — every date operation analyzed for timezone, format, and precision differences. Cross-reference with validation results from Step 5 Check 7.
+6. **Risk summary** — all changes ranked by risk (High, Medium, Low, None)
+
+Output the report as a notebook in the same folder as the converted pipeline.
+
+## Step 7: Print Summary
+
+Print:
+- Validation results (pass/fail per table per check)
+- Conversion report executive summary
+- Risk summary (high-risk changes only)
+- Any validation failures correlated with specific code changes from the report
+
+## Step 8: Troubleshooting (If Validation Fails)
+
+If you need to isolate whether failures come from the language conversion or the runtime upgrade:
+
+1. Compare Version N+2 (PySpark 16.4) against Version N+1 (Scala 16.4):
+   ```python
+   scala_16_df = spark.read.format("delta").option("versionAsOf", <version_N_plus_1>).table("<schema>.<table>")
+   pyspark_16_df = spark.table("<schema>.<table>")
+   ```
+   - If these **match**: any diff from the baseline is due to the runtime upgrade, not the language conversion. The Scala 16.4 step should have already caught this.
+   - If these **differ**: the language conversion introduced a difference. Fix the PySpark notebooks.
+
+2. Cross-reference any validation failures with the conversion report. The report's UDF detail and date/timestamp sections should identify the root cause.
+
+3. If you need a cleaner test, run the PySpark notebooks on a **DBR 13.3** cluster and compare against Version N:
+   - If this **passes**: language conversion is clean, issue is the runtime upgrade
+   - If this **fails**: language conversion has issues → fix the `scala_to_pyspark` conversion
