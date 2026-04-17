@@ -1829,9 +1829,9 @@ val tableName = "catalog.schema.claims"
 spark.sql(s"SELECT * FROM IDENTIFIER('$tableName')")
 ```
 
-### 11.4 Variant Type
+### 11.4 Variant Type (Verify GA Status Before Use)
 
-Native semi-structured data type for JSON-like data.
+Native semi-structured data type for JSON-like data. Available in DBR 15.3+. **Verify GA status before adopting** — confirm with Databricks documentation that VARIANT is GA for your DBR version before using in production.
 
 ```sql
 -- Parse JSON into Variant type (no schema needed)

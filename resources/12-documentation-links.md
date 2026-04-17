@@ -143,5 +143,6 @@ If the code reads existing VARIANT columns, verify serverless support.
 
 Reference: https://docs.databricks.com/en/sql/language-manual/data-types/variant-type.html
 
-Recommendation: Verify VARIANT type behavior on serverless compute.
+Recommendation: Verify VARIANT type GA status before using in production.
+Do not adopt non-GA features for Molina workloads.
 ```

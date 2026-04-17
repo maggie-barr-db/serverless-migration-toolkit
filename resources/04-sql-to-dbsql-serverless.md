@@ -1304,11 +1304,7 @@ VACUUM claims_silver;
 VACUUM claims_silver RETAIN 168 HOURS;
 ```
 
-Works in DBSQL. Default retention is 7 days (168 hours). `VACUUM LITE` is preferred for better performance on large tables:
-
-```sql
-VACUUM LITE claims_silver;
-```
+Works in DBSQL. Default retention is 7 days (168 hours). For external tables, schedule regular VACUUM since Predictive Optimization is not available.
 
 ### 10.4 DESCRIBE / SHOW Commands — Work Identically
 

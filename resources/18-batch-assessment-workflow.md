@@ -514,7 +514,7 @@ Flag impossible or high-risk combinations before routing. Each check produces a 
 | F1 | Scala + serverless without conversion | **BLOCK** | Serverless does not support Scala. Must be Path B (convert first), not C. |
 | F2 | Streaming job + serverless | **BLOCK** | Structured Streaming is not supported on serverless general compute. Job must stay on classic or use DLT. |
 | F3 | GPU/ML runtime + serverless | **WARN** | GPU instances are not available on serverless. Evaluate if ML runtime features are actually needed. May need to stay on classic. |
-| F4 | JAR task + serverless | **WARN** | JAR tasks on serverless are in public preview. Evaluate if a Python rewrite is feasible, or use the JAR task preview feature. |
+| F4 | JAR task + serverless | **BLOCK** | JAR libraries are not supported in serverless notebooks. Rewrite in Python or keep on classic compute. |
 | F5 | ThreadPoolExecutor usage | **WARN** | Concurrent notebook/task execution via ThreadPoolExecutor degrades performance on serverless. Recommend Databricks workflow for-each tasks instead. |
 | F6 | Runtime > 4 hours on classic | **WARN** | Serverless sessions have idle timeout behavior. Long-running jobs may need session keep-alive or task decomposition. |
 | F7 | Init scripts present | **WARN** | Init scripts are not supported on serverless. Dependencies must move to requirements.txt or the environment pane. |

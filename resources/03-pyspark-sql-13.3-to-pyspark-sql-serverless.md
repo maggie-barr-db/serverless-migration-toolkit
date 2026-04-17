@@ -1800,25 +1800,17 @@ if df.limit(1).count() > 0:  # also efficient
     process(df)
 ```
 
-### 9.3 VACUUM LITE Instead of VACUUM
+### 9.3 VACUUM on Serverless
 
-**Detect regex (SQL):**
-```regex
-(?i)\bVACUUM\s+\w+(?!\s+LITE)
-```
+Standard VACUUM works the same on serverless. No code change needed.
 
-**Before -- SQL:**
 ```sql
 VACUUM claims_bronze RETAIN 168 HOURS;
 ```
 
-**After -- SQL:**
-```sql
--- VACUUM LITE is faster on serverless -- only removes files already marked for deletion
-VACUUM claims_bronze LITE;
--- Or with retention:
-VACUUM claims_bronze RETAIN 168 HOURS LITE;
-```
+For external tables, schedule regular VACUUM + OPTIMIZE since Predictive Optimization is not available.
+
+> **Note:** VACUUM LITE is available as a Public Preview feature but is not GA. Use standard VACUUM until GA.
 
 ### 9.4 Liquid Clustering Instead of ZORDER
 
@@ -2290,7 +2282,7 @@ Store version numbers in a tracking spreadsheet or metadata table.
 
 **Step 10: Review for performance**
 - Remove unnecessary .count() -> .first() is not None
-- Consider VACUUM LITE
+- Schedule regular VACUUM for external tables
 - Consider Liquid Clustering for new tables
 - Remove manual partition/shuffle tuning
 
@@ -2362,7 +2354,7 @@ Store version numbers in a tracking spreadsheet or metadata table.
 
 - [Delta Lake on serverless](https://docs.databricks.com/en/delta/index.html)
 - [Liquid Clustering](https://docs.databricks.com/en/delta/clustering.html)
-- [VACUUM LITE](https://docs.databricks.com/en/sql/language-manual/delta-vacuum.html)
+- [VACUUM](https://docs.databricks.com/en/sql/language-manual/delta-vacuum.html)
 - [Row tracking](https://docs.databricks.com/en/delta/row-tracking.html)
 - [Delta protocol versions](https://docs.databricks.com/en/delta/table-properties.html#table-protocol)
 

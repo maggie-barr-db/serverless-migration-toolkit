@@ -477,9 +477,9 @@ These issues cover runtime regressions, memory errors, and cost changes observed
   Serverless sequential: 4.55+ hours (cancelled)
   ```
 - **Root cause:** VACUUM operations are slower on serverless, especially when using Python multiprocessing for parallelism.
-- **Resolution:** Use `VACUUM LITE` -- reduced execution time by 50%. `VACUUM LITE` uses the transaction log to identify files to remove rather than listing the full directory.
-- **Important note:** If a table has never had `VACUUM FULL` run on it, you must run `VACUUM FULL` first, then use `VACUUM LITE` for subsequent runs.
-- **Prevention:** Identify all VACUUM jobs during assessment. Plan to switch to `VACUUM LITE` and schedule an initial `VACUUM FULL` pass.
+- **Resolution:** Avoid Python multiprocessing for VACUUM on serverless. Run VACUUM operations sequentially or use Databricks Workflows to parallelize across separate tasks. VACUUM performance on serverless is generally acceptable for individual tables when run without external threading.
+- **Note:** VACUUM LITE (Public Preview) was tested and reduced execution time by 50%, but is not GA. Use standard VACUUM until VACUUM LITE reaches GA.
+- **Prevention:** Identify all VACUUM jobs during assessment. Evaluate if multiprocessing can be replaced with workflow-level parallelism.
 
 ---
 
@@ -491,9 +491,9 @@ These issues cover runtime regressions, memory errors, and cost changes observed
   ```
   [DELTA_CANNOT_VACUUM_LITE] VACUUM LITE cannot delete all eligible files as some files are not referenced by the Delta log. Please run VACUUM FULL.
   ```
-- **Root cause:** `VACUUM LITE` depends on the Delta transaction log being complete. Tables that have never had `VACUUM FULL` may have unreferenced files not tracked in the log.
-- **Resolution:** Run `VACUUM FULL` first, then use `VACUUM LITE` for all subsequent runs.
-- **Prevention:** Before switching to `VACUUM LITE`, confirm each table has had at least one successful `VACUUM FULL`.
+- **Root cause:** `VACUUM LITE` (Public Preview) depends on the Delta transaction log being complete. Tables that have never had `VACUUM FULL` may have unreferenced files not tracked in the log.
+- **Resolution:** This error only occurs with VACUUM LITE (Public Preview). Use standard `VACUUM` instead until VACUUM LITE reaches GA.
+- **Prevention:** Do not use VACUUM LITE in production until it is GA.
 
 ---
 
@@ -824,7 +824,7 @@ Before migrating any job to serverless, scan the codebase for these patterns:
 - [ ] References to `_metadata` column
 
 **Performance (Issues 29-39):**
-- [ ] `VACUUM` operations (switch to `VACUUM LITE`)
+- [ ] `VACUUM` operations (avoid multiprocessing on serverless)
 - [ ] External tables (need `OPTIMIZE` + `ANALYZE`)
 - [ ] `.count()` used for empty checks
 - [ ] `PartitionBy` in write operations

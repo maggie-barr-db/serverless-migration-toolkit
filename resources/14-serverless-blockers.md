@@ -10,7 +10,7 @@ These make a job **ineligible for serverless general compute**. The job must sta
 
 | # | Blocker | Detection | Resolution Path |
 |---|---------|-----------|----------------|
-| H1 | **Scala notebooks** | Language = Scala in notebook header | Convert to PySpark (Path B) OR use JAR task (Public Preview) |
+| H1 | **Scala notebooks** | Language = Scala in notebook header | Convert to PySpark (Path B). Scala cannot run in serverless notebooks. |
 | H2 | **R notebooks** | Language = R in notebook header | Not supported. Stay on classic compute. |
 | H3 | **Streaming jobs** | `readStream`, `writeStream`, `trigger`, `spark.readStream` | Not supported on serverless general compute. Use classic compute or DLT. |
 | H4 | **GPU workloads** | `.cuda()`, `torch.device("cuda")`, `tensorflow.*GPU`, `cudf`, `cuml` | Requires GPU clusters. Stay on classic compute. |

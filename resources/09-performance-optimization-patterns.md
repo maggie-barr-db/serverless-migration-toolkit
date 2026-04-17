@@ -235,17 +235,18 @@ CREATE OR REPLACE TABLE temp_catalog.schema.claims_staging AS SELECT ...;
 
 ## 4. VACUUM and Table Maintenance
 
-### VACUUM LITE vs VACUUM
+### VACUUM on Serverless
 
 ```sql
--- BEFORE (classic compute — standard VACUUM):
+-- VACUUM works the same on serverless as on classic compute:
 VACUUM catalog.schema.table_name RETAIN 168 HOURS;
 
--- AFTER (serverless — VACUUM LITE for better performance):
-VACUUM catalog.schema.table_name RETAIN 168 HOURS;
--- Note: On serverless, VACUUM automatically uses optimized execution.
--- No code change needed — just awareness that it runs more efficiently.
+-- No code change needed for VACUUM operations.
+-- For external tables, schedule regular VACUUM + OPTIMIZE since
+-- Predictive Optimization is not available.
 ```
+
+> **Note:** VACUUM LITE is available as a Public Preview feature that uses the transaction log for faster execution. Since Molina requires GA features only, use standard VACUUM. Monitor Databricks release notes for GA availability.
 
 ### Liquid Clustering vs ZORDER
 

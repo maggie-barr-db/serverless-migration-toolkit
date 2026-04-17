@@ -1397,21 +1397,17 @@ print(f"Rows: {count}")
 # only if count is needed for the print; if not, remove the count entirely
 ```
 
-### VACUUM LITE Instead of VACUUM
+### VACUUM on Serverless
 
-**Detect:**
-```regex
-VACUUM\s+(?!LITE)
-```
+Standard VACUUM works the same on serverless. No code change needed.
 
-**Fix:**
 ```sql
--- Before:
 VACUUM catalog.schema.my_table RETAIN 168 HOURS;
-
--- After -- VACUUM LITE is faster and less resource-intensive:
-VACUUM LITE catalog.schema.my_table RETAIN 168 HOURS;
 ```
+
+For external tables, schedule regular VACUUM since Predictive Optimization is not available.
+
+> **Note:** VACUUM LITE is available as a Public Preview feature but is not GA. Use standard VACUUM until GA.
 
 ### Liquid Clustering Instead of ZORDER
 
@@ -2000,7 +1996,7 @@ Phase 6: Performance Review
        - Evaluate pandas_udf for row-at-a-time UDFs
        - Remove manual partition configs
        - Consider Liquid Clustering for new tables
-       - Consider VACUUM LITE
+       - Schedule regular VACUUM for external tables
 
 Phase 7: Test Coverage
 ======================
