@@ -31,6 +31,8 @@ Every migration has changes in two places:
 
 ## 2. Toolkit Contents
 
+The toolkit has three layers that work together. **Resources** are reference documents containing the knowledge base: migration patterns, code fix examples, known issues, regex scan patterns, and configuration maps. They are what Genie Code (or a developer) reads to understand what needs to change and why. **Skills** are instructional documents that teach Genie Code how to perform a specific task end-to-end, like upgrading a DBR version or validating a migration. Skills reference resources for detailed patterns but add workflow logic, ordering, and decision-making on top. **Prompts** are the executable entry points that a user runs to kick off a workflow. A prompt ties together one or more skills and resources into a step-by-step process for a specific goal like assessing a batch of jobs or validating a migration.
+
 ### 2.1 Resources (19 files)
 
 **Scenario Guides:**
@@ -369,14 +371,202 @@ Features:
 
 ### 2.3 Prompts (6 files)
 
-| Prompt | Runs In | Purpose |
-|--------|---------|---------|
-| `assess_databricks.txt` | Genie Code | Assessment + change manifest for single job or batch |
-| `assess_repo.txt` | VS Code/Copilot or manual | Repo-side checklist for Azure DevOps artifacts |
-| `migrate_to_serverless.txt` | Genie Code | Apply code changes to staging copies in workspace |
-| `validate_migration.txt` | Genie Code | Full validation suite with structured pass/fail report |
-| `prompt_scala_upgrade.txt` | Genie Code | Upgrade a Scala pipeline from 13.3to16.4 |
-| `prompt_scala_to_pyspark_upgrade.txt` | Genie Code | Convert ScalatoPySpark + upgrade to 16.4 |
+#### Assess Databricks (assess_databricks.txt)
+
+**Runs in:** Genie Code (Databricks workspace)
+**Purpose:** Assess one or more jobs for migration readiness. Produces a structured report and change manifest per job.
+
+Steps:
+
+1. Extract job configuration via Jobs API
+    1. Pull DBR version, language, cluster spec, init scripts, libraries, spark configs
+    2. Identify all notebook paths and %run dependencies
+    3. Classify: language, compute type, streaming, GPU
+    4. Auto-recommend migration path based on classification
+
+2. Eligibility screening
+    1. Check hard blockers (Scala, R, GPU, streaming, non-UC)
+    2. Check soft blockers (init scripts, JARs, RDD APIs, unsupported configs)
+    3. Flag impossible combinations (e.g., serverless prescribed for Scala without conversion)
+
+3. Code-level audit
+    1. Scan all notebooks for ANSI compliance issues (25+ patterns)
+    2. Scan for unsupported serverless operations (persist, REFRESH TABLE, MSCK REPAIR)
+    3. Scan for unsupported Spark configs
+    4. Scan for environment variable usage, library issues, performance anti-patterns
+
+4. Data compatibility check
+    1. Check table type (managed vs external) for every output table
+    2. Check Delta protocol versions, row tracking, datetime columns, file layout
+    3. Produce per-table risk rating (HIGH/MEDIUM/LOW)
+
+5. Produce change manifest
+    1. Cell/line-level diffs with before/after code for every finding
+    2. Classify each finding as Databricks-side or repo-side
+    3. Format for developer to apply to repo source files
+
+6. Produce assessment report
+    1. Structured report with finding counts by severity
+    2. Effort estimate (LOW/MEDIUM/HIGH)
+    3. Batch summary if multiple jobs assessed
+
+#### Assess Repo (assess_repo.txt)
+
+**Runs in:** VS Code/Copilot or manual (Azure DevOps access required)
+**Purpose:** Verify and apply repo-side changes for job JSON templates, deployment scripts, and variable groups. Genie Code cannot access Azure DevOps, so this runs outside Databricks.
+
+Steps:
+
+1. Audit job JSON templates
+    1. Verify job_clusters section removed
+    2. Verify environment_key added to each task
+    3. Verify environments block with client "4" and requirements.txt path
+    4. Verify parameters block (PATH_LANDING, PATH_DATALAKE) with %env_name%
+    5. Verify queue and performance_optimized settings
+    6. Flag any hardcoded environment values that should be %env_name%
+
+2. Audit PowerShell deployment script
+    1. Verify %env_name% replacement line exists
+    2. Verify all placeholders in job JSONs have matching .Replace() calls
+    3. Verify job create vs reset logic (preserves job ID)
+
+3. Audit variable groups
+    1. Verify env_name variable exists in all environment-specific groups
+    2. Confirm no new variables needed
+
+4. Produce repo change report with checklist
+
+#### Migrate to Serverless (migrate_to_serverless.txt)
+
+**Runs in:** Genie Code (Databricks workspace)
+**Purpose:** Execute the Databricks-side migration for a single job. Creates staging copies, applies fixes, produces change manifest.
+
+Steps:
+
+1. Create staging copies
+    1. Copy each notebook to /Workspace/Migration/staging/{job_name}/
+    2. Preserve folder structure
+    3. Never modify original deployed notebooks
+
+2. Apply ANSI-safe fixes
+    1. TRY_CAST, TRY_DIVIDE, IS TRUE, try_to_date, try_to_timestamp
+    2. Array/map bounds checks
+    3. Type widening for overflow
+
+3. Remove unsupported operations
+    1. .persist()/.cache(), REFRESH TABLE, MSCK REPAIR TABLE
+    2. Convert materialized views to SQL Warehouse note
+    3. Convert global temp views to session-scoped
+
+4. Migrate Spark configs
+    1. Remove unsupported configs
+    2. Remove spark.sql.ansi.enabled = false
+
+5. Migrate environment variables
+    1. Replace os.environ.get() with dbutils.widgets.get()
+
+6. Migrate dependencies
+    1. Remove %pip install, dbutils.library.install
+    2. Replace com.crealytics.spark.excel with pandas + openpyxl
+
+7. Scala to PySpark conversion (Path B only)
+    1. Apply scala_to_pyspark skill before other fixes
+
+8. SQL to DBSQL conversion (Path D only)
+    1. Extract SQL from spark.sql() calls
+    2. Convert parameters/widgets
+
+9. Apply safe performance recommendations
+    1. .count() > 0 to .first() is not None
+    2. Remove manual shuffle partition settings
+
+10. Produce change manifest
+    1. Cell/line diffs for every change made
+    2. Save as change_manifest.md in staging folder
+
+11. Create test job pointing to staging notebooks
+
+#### Validate Migration (validate_migration.txt)
+
+**Runs in:** Genie Code (Databricks workspace)
+**Purpose:** Run the full validation suite against all output tables and produce a structured pass/fail report.
+
+Steps:
+
+1. Setup
+    1. Load original (baseline) and migrated DataFrames
+    2. Identify primary keys and exclude metadata columns
+    3. Classify columns by type
+
+2. Structural checks (seconds)
+    1. Schema comparison
+    2. Row count + orphan detection
+
+3. Statistical checks (seconds to minutes)
+    1. Null counts per column
+    2. Aggregate stats with tolerance
+    3. Distinct value sets
+
+4. Row-level checks (minutes)
+    1. Row-by-row comparison with eqNullSafe
+    2. Date/timestamp deep validation (7 sub-checks)
+
+5. Semantic checks (minutes)
+    1. Null vs empty string confusion
+    2. Null vs zero/default confusion
+    3. Boolean/flag equivalence
+    4. Numeric precision/rounding
+    5. UDF output consistency
+
+6. Edge case checks (minutes)
+    1. Edge case patterns (negatives, special strings, NaN)
+    2. Non-determinism detection
+
+7. Serverless-specific checks (Paths B, C)
+    1. Confirm ran on serverless compute
+    2. Config compliance (no CONFIG_NOT_AVAILABLE errors)
+    3. Environment key verification
+    4. Performance comparison (flag >2x regressions)
+
+8. DBSQL-specific checks (Path D)
+    1. Warehouse execution verification
+    2. Parameter passing verification
+    3. SQL syntax compatibility
+
+9. Produce validation report
+    1. Per-table pass/fail with check details
+    2. Performance comparison table
+    3. Failure root cause analysis with fix references
+    4. Recommendation: approved / needs fixes / needs investigation
+
+#### Scala Upgrade (prompt_scala_upgrade.txt)
+
+**Runs in:** Genie Code (Databricks workspace)
+**Purpose:** Upgrade a Scala pipeline from 13.3 to 16.4 while keeping it in Scala.
+
+Steps:
+
+1. Record baseline Delta table versions
+2. Copy pipeline notebooks to new folder
+3. Apply dbr_upgrade skill (ANSI fixes, deprecated configs, API changes)
+4. Run upgraded pipeline on 16.4 cluster
+5. Validate using conversion_validator (time travel mode)
+6. Generate conversion_report
+
+#### Scala to PySpark Upgrade (prompt_scala_to_pyspark_upgrade.txt)
+
+**Runs in:** Genie Code (Databricks workspace)
+**Purpose:** Convert a Scala pipeline to PySpark and upgrade to 16.4.
+
+Steps:
+
+1. Confirm baseline Delta table versions
+2. Copy and convert Scala notebooks to PySpark (scala_to_pyspark skill)
+3. Apply dbr_upgrade skill to PySpark notebooks (ANSI fixes, configs)
+4. Run converted pipeline on 16.4 cluster
+5. Validate using conversion_validator (time travel: original Scala 13.3 vs PySpark 16.4)
+6. Generate conversion_report
+7. If validation fails, isolate: language conversion vs runtime upgrade
 
 
 ## 3. Execution Workflow
