@@ -69,14 +69,70 @@ Every migration has changes in two places:
 | 18 | `batch-assessment-workflow.md` | Manifest-driven batch assessment with report templates. |
 | 19 | `comprehensive-job-assessment.md` | Master assessment: 49 checks across 6 phases per job. |
 
-### 2.2 Skills (4 files, all updated)
+### 2.2 Skills — Detailed Feature Specifications
 
-| Skill | Features | Status |
-|-------|----------|--------|
-| `dbr_upgrade/skill.md` | F1-F10: ANSI fixes, deprecated configs, new features, regex patterns, scan checklist | Complete |
-| `scala_to_pyspark/skill.md` | F1-F14: Full language conversion with edge cases, null handling, precision | Complete |
-| `conversion_validator/skill.md` | F1-F18: 14 original checks + 4 serverless checks (compute verify, config compliance, env key, performance) | Complete |
-| `conversion_report/skill.md` | F1-F9: Original sections + serverless changes, library replacements, repo-side manifest | Complete |
+#### DBR Upgrade Skill (13.3 → 16.4)
+
+**Purpose:** Complete reference for upgrading Databricks Runtime from 13.3 LTS to 16.4 LTS. Applies to both Scala and PySpark code.
+
+- F1: ANSI compliance fix patterns — TRY_CAST, TRY_DIVIDE, null guards, IS TRUE for every ANSI-unsafe pattern
+- F2: Deprecated config detection and removal — configs removed between 13.3 and 16.4 with replacements
+- F3: Changed default detection — configs where default values changed (ANSI enabled, sources.default)
+- F4: Deprecated API detection — SQL functions, DataFrame methods, UDF patterns that changed
+- F5: New features available in 16.4 — Liquid Clustering, Predictive I/O, IDENTIFIER(), default column values
+- F6: Delta Lake changes — protocol versions, deletion vectors, column mapping defaults
+- F7: PySpark-specific changes — Arrow-based UDF defaults, pandas_udf improvements
+- F8: Scala-specific changes — Scala 2.12.18 compatibility, Dataset API deprecations
+- F9: Structured regex patterns for automated scanning — references `resources/15-breaking-changes-13-to-16-regex.md`
+- F10: Scan checklist — 4-pass severity-organized checklist (Critical → High → Medium → Low)
+
+#### Scala to PySpark Skill
+
+**Purpose:** Complete reference for converting Databricks Scala notebooks to PySpark.
+
+- F1: Import translations — org.apache.spark → pyspark with F. prefix convention
+- F2: Column reference syntax — $"col" → F.col(), .as() → .alias(), === → ==
+- F3: Case class → StructType / dataclass conversion
+- F4: Pattern matching → if/elif or dictionary
+- F5: Option/Some/None → Python None handling
+- F6: Try/Success/Failure → try/except
+- F7: UDF conversion — explicit return types, None handling for every code path
+- F8: Array/map access sugar — Scala apply → Python indexing/getItem/element_at
+- F9: Boolean operator precedence — & and | require parentheses in PySpark
+- F10: Numeric precision differences — banker's rounding, integer division
+- F11: Date parsing edge cases — SimpleDateFormat lenient mode vs strptime
+- F12: Silent data difference patterns — null propagation, regex escaping, empty collections
+- F13: Non-determinism warnings — sort order, dropDuplicates, HashMap iteration, float aggregation
+- F14: Comprehensive conversion checklist
+
+#### Conversion Validator Skill
+
+**Purpose:** Validate that migrated code produces output identical to the original pipeline. 18-check framework organized from fast/cheap to slow/thorough.
+
+- F1: Schema comparison — column names, types, nullability
+- F2: Row count comparison — exact match + orphan row detection
+- F3–F5: Statistical checks — null counts, aggregates, distinct value counts
+- F6–F7: Row-level checks — full data comparison, date/timestamp deep dive (7 sub-checks)
+- F8–F12: Semantic checks — null↔empty confusion, null↔zero confusion, type coercion, rounding, UDF behavior
+- F13–F14: Edge cases and non-determinism detection
+- F15: Serverless compute verification — confirm job ran on serverless via run details API
+- F16: Config compliance check — verify no unsupported spark configs were set during run
+- F17: Environment key verification — confirm environment_key on all tasks, no unresolved placeholders
+- F18: Performance comparison — classic vs serverless runtime with regression flagging (>2x threshold)
+
+#### Conversion Report Skill
+
+**Purpose:** Generate audit trail documenting every code change and its rationale.
+
+- F1: Executive summary — change counts by category (syntax, API, ANSI, runtime, UDF, behavioral)
+- F2: Notebook-by-notebook diff — every change with location, category, risk, behavioral impact
+- F3: ANSI compliance audit section — every ANSI-sensitive pattern and how it was fixed
+- F4: UDF conversion detail — side-by-side comparison with null handling analysis
+- F5: Date/timestamp conversion detail — timezone, format, precision analysis
+- F6: Risk summary table — ranked by severity with mitigation steps
+- F7: Serverless-specific change section — job JSON transformation, env var migration, config removals
+- F8: Library replacement section — documenting each replaced library with before/after code
+- F9: Repo-side change manifest — what was changed in Azure DevOps (job JSON, PowerShell script, variable groups)
 
 ### 2.3 Prompts (6 files)
 
@@ -186,17 +242,3 @@ Gate 4: Production Cutover
 
 10. **UAT-first workflow.** All migration work happens in UAT. Changes promote to PROD only after CI/CD round-trip validation passes.
 
----
-
-## 5. Resolved Items
-
-| # | Item | Resolution |
-|---|------|-----------|
-| 1 | DevOps pipeline variable name for environment | `env_name` (exists in variable groups as `uat`, `dev`, `prod`) |
-| 2 | performance_target vs performance_optimized | Use `"performance_optimized": true` in job JSON |
-| 3 | %env_name% not being replaced in deploy script | Add `$bodyJson.Replace("%env_name%","$env_name")` to PowerShell script |
-| 4 | Job JSON template with parameters | PATH_LANDING and PATH_DATALAKE added with %env_name% substitution |
-| 5 | SOP incorporation into skills | All SOP recommendations incorporated (resource 19). ANSI=false overridden with ANSI-safe fixes. |
-| 6 | Customer feedback on non-UC flagging | Sanjay confirmed ADLS paths are UC-registered. Do not flag. |
-| 7 | Non-GA feature scrub | VACUUM LITE and serverless JAR tasks removed. GA features only. |
-| 8 | Testing workflow for CI/CD one-way deployment | Change manifest approach — Genie Code prescribes, developer applies to repo. |
