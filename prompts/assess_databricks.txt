@@ -1,0 +1,164 @@
+I need to assess one or more Databricks jobs for migration readiness. The assessment should analyze the job configuration, scan all notebook code, check output tables, and produce a structured report with findings and recommendations.
+
+## Input
+
+I will provide either:
+- A single job ID, OR
+- A list of job IDs with prescribed migration paths (a manifest)
+
+If I provide a manifest, it will look like:
+```
+job_id, job_name, prescribed_path, priority
+545285009490448, wf_ipro_member_sdoh, C, HIGH
+```
+
+Where path is: A (Scala→Scala 16.4), B (Scala→PySpark Serverless), C (PySpark→Serverless), D (SQL→DBSQL)
+
+If I provide just a job ID without a path, recommend the best path based on your analysis.
+
+## Step 1: Extract Job Configuration
+
+For each job ID, pull the job config via the Jobs API:
+- DBR version
+- Language (Python/SQL/Scala/R)
+- Cluster spec (job cluster vs all-purpose)
+- Init scripts
+- Libraries
+- Spark configs set at cluster level
+- Task definitions and notebook paths
+- All %run dependencies
+
+Classify the job: language, compute type, streaming yes/no, GPU yes/no.
+
+## Step 2: Eligibility Screening
+
+Run through the hard blockers. Flag any that apply:
+- Scala or R notebooks → must convert (Path B) or stay on classic
+- GPU workloads → stay on classic
+- Structured streaming → stay on classic or use DLT
+- Global temp views → must convert to session-scoped
+
+If any hard blockers are found, flag them immediately and recommend whether to proceed with a different path or keep the job on classic compute.
+
+## Step 3: Code-Level Audit
+
+For each notebook referenced by the job, scan for all patterns from the comprehensive assessment (resource 19). Organize findings by severity:
+
+**CRITICAL — will cause runtime failures:**
+- ANSI compliance issues (CAST, division, boolean=INT, array/map access, to_date/to_timestamp)
+- Unsupported operations (.persist, REFRESH TABLE, MSCK REPAIR TABLE, materialized views)
+- Unsupported Spark configs
+
+**HIGH — requires refactoring:**
+- RDD APIs
+- JAR library dependencies
+- com.crealytics.spark.excel
+- Environment variable usage (os.environ.get)
+
+**MEDIUM — needs attention:**
+- ThreadPoolExecutor usage (performance degradation on serverless)
+- Temp view reuse in loops
+- Unpinned dependencies
+- /tmp file paths
+- SELECT * with potential row filter issues
+- Chained .withColumn() calls
+
+**LOW — informational:**
+- .count() > 0 patterns (performance)
+- Manual shuffle partition settings
+- ZORDER usage (Liquid Clustering available as GA alternative)
+
+For each finding, record:
+- Check ID (from resource 19)
+- Notebook name and cell/line number
+- The specific code found
+- The recommended fix
+- Whether this is a Databricks-side or repo-side change
+
+**IMPORTANT:**
+- Do NOT flag abfss:// paths as non-Unity Catalog. Molina's ADLS paths are registered in UC.
+- Do NOT flag 2-part table names after USE CATALOG as non-UC. Molina uses `USE CATALOG {{env}}_catalog`.
+- Do NOT recommend `spark.sql.ansi.enabled = false`. Always recommend ANSI-safe code fixes.
+- Do NOT recommend non-GA features (VACUUM LITE, serverless JAR tasks).
+
+## Step 4: Data Compatibility Check
+
+For each output table written by the job:
+1. Check table type (managed vs external) via DESCRIBE DETAIL
+2. Check Delta protocol version (auto-upgrade risk)
+3. Check row tracking status (_metadata conflict risk)
+4. Sample datetime columns for invalid values ('00000000', '2299-12-34')
+5. Check BOOLEAN columns and cross-reference with code for = 1 comparisons
+6. Check file layout (small files → recommend OPTIMIZE before migration)
+7. Produce a risk rating: HIGH / MEDIUM / LOW per table
+
+Reference: resource 17 (data-compatibility-checks.md)
+
+## Step 5: Produce Change Manifest
+
+For each finding that requires a code change, produce the change manifest format:
+
+```
+Notebook: <notebook_path>
+Cell <N>, Line <N>:
+  BEFORE: <exact current code>
+  AFTER:  <exact replacement code>
+  Reason: <why this change is needed>
+  Check:  <check ID from resource 19>
+```
+
+This manifest is what the developer will use to apply changes to the repo source files. The developer applies these edits to the parameterized source files (which still have %placeholder% tokens), NOT to workspace copies.
+
+## Step 6: Produce Assessment Report
+
+Output a structured report:
+
+```
+JOB ASSESSMENT REPORT
+═══════════════════════════════════════════════
+Job: <job_name> (<job_id>)
+Current: <language> on DBR <version> (<compute_type>)
+Prescribed Path: <path>
+Recommended Path: <path> (with justification if different)
+Eligibility: PASS / FAIL / PASS WITH CHANGES
+
+HARD BLOCKERS: <count>
+HIGH EFFORT: <count>
+ANSI COMPLIANCE: <count> findings
+UNSUPPORTED OPERATIONS: <count>
+CONFIG ISSUES: <count>
+DEPENDENCY ISSUES: <count>
+PERFORMANCE RECOMMENDATIONS: <count>
+
+TABLE FINDINGS:
+  <table_name>: <risk_rating> — <summary>
+
+EFFORT ESTIMATE: LOW / MEDIUM / HIGH
+
+CHANGE MANIFEST: <count> code changes across <count> notebooks
+```
+
+## Step 7: Batch Summary (if multiple jobs)
+
+If assessing multiple jobs, produce a batch summary after all individual reports:
+
+```
+BATCH SUMMARY
+═══════════════════════════════════════════════
+Jobs assessed: <count>
+Path distribution: A=<n>, B=<n>, C=<n>, D=<n>
+Total findings: CRITICAL=<n>, HIGH=<n>, MEDIUM=<n>, LOW=<n>
+Most common issues: <top 5 with counts>
+Effort: Low=<n> jobs, Medium=<n> jobs, High=<n> jobs
+```
+
+## Cross-References
+
+- Comprehensive assessment checks: resources/19-comprehensive-job-assessment.md
+- ANSI compliance patterns: resources/07-ansi-compliance-reference.md
+- Breaking changes regex: resources/15-breaking-changes-13-to-16-regex.md
+- Serverless blockers: resources/14-serverless-blockers.md
+- Spark config map: resources/05-spark-config-classic-to-serverless.md
+- Known issues: resources/13-serverless-known-issues.md
+- Data compatibility: resources/17-data-compatibility-checks.md
+- Package analysis: resources/06-package-dependency-analysis.md

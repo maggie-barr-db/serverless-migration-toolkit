@@ -1,0 +1,172 @@
+I need to validate that a migrated job produces output identical to the original. Run the full validation suite against all output tables and produce a structured report.
+
+## Input
+
+I will provide:
+- The job name and job ID
+- The migration path (A, B, C, or D)
+- The baseline table versions or catalog to compare against
+- The run ID of the migrated job (for serverless checks)
+
+## Validation Mode
+
+Determine which comparison mode to use:
+
+**Cross-Catalog (UAT staging vs PROD baseline):**
+```python
+original_df = spark.table("prod_catalog.<schema>.<table>")
+migrated_df = spark.table("uat_catalog.<schema>.<table>")
+```
+
+**Time Travel (within same catalog):**
+```python
+original_df = spark.read.format("delta").option("versionAsOf", <baseline_version>).table("<catalog>.<schema>.<table>")
+migrated_df = spark.table("<catalog>.<schema>.<table>")
+```
+
+I will specify which mode to use. If not specified, default to time travel within UAT.
+
+## Step 1: Setup
+
+For each output table:
+1. Load the original (baseline) DataFrame
+2. Load the migrated DataFrame
+3. Identify the primary key column(s)
+4. Exclude metadata columns: `_ingestion_timestamp`, `_transform_timestamp`, `_source_file`, `_row_hash`
+5. Classify columns by type (numeric, string, date, timestamp, boolean)
+
+Reference: skills/conversion_validator/skill.md for detailed code
+
+## Step 2: Run Structural Checks (Checks 1-2)
+
+**Check 1: Schema Comparison**
+- Column names, types, nullability must all match
+- Missing columns or type mismatches are failures
+
+**Check 2: Row Count**
+- Exact count match
+- Zero orphan rows in either direction (full outer join)
+
+## Step 3: Run Statistical Checks (Checks 3-5)
+
+**Check 3: Null Count Comparison** — per column, null counts must match exactly
+**Check 4: Aggregate Stats** — sum, avg, min, max within tolerance (1e-6 for floats)
+**Check 5: Distinct Value Sets** — identical per string/categorical column
+
+## Step 4: Run Row-Level Checks (Checks 6-7)
+
+**Check 6: Row-by-Row Comparison** — use eqNullSafe, zero mismatches expected
+**Check 7: Date/Timestamp Deep Validation:**
+- 7a: Identify all date/timestamp columns (including string dates)
+- 7b: Value-by-value comparison
+- 7c: Timezone offset detection (dates off by 1 day, timestamps off by hours)
+- 7d: Null vs epoch zero confusion (null ↔ 1970-01-01)
+- 7e: Date boundary cases (leap year, month-end, year rollover)
+- 7f: Date type comparison
+- 7g: String date format comparison
+
+## Step 5: Run Semantic Checks (Checks 8-12)
+
+**Check 8: Null vs Empty String** — zero null↔empty conversions
+**Check 9: Null vs Zero/Default** — zero null↔zero conversions
+**Check 10: Boolean/Flag Equivalence** — zero case/whitespace diffs
+**Check 11: Numeric Precision** — categorize diffs as noise/rounding/real
+**Check 12: UDF Output Consistency** — zero mismatches per UDF column
+
+## Step 6: Run Edge Case Checks (Checks 13-14)
+
+**Check 13: Edge Case Patterns** — negative counts, empty/null distribution, large values, special strings, NaN
+**Check 14: Non-Determinism** — flag as informational, not failures
+
+## Step 7: Run Serverless-Specific Checks (Checks 15-18, Path B/C only)
+
+**Check 15: Serverless Compute Verification**
+- Confirm job ran on serverless via run details API
+- Every task must have environment_key, no cluster_id
+
+**Check 16: Config Compliance**
+- Check run logs for CONFIG_NOT_AVAILABLE errors
+- Verify no unsupported configs were set
+
+**Check 17: Environment Key Verification**
+- Confirm environment_key on all tasks in job config
+- Verify environments block has client "4"
+- Verify no unresolved %env_name% placeholders in dependencies
+
+**Check 18: Performance Comparison**
+- Compare task-level durations: classic vs serverless
+- Flag any task >2x classic runtime as regression
+- Informational, not a blocking failure
+
+Reference: skills/conversion_validator/skill.md (F15-F18) for code
+
+## Step 8: Run DBSQL-Specific Checks (Checks 19-21, Path D only)
+
+**Check 19: Warehouse Execution Verification** — ran on SQL warehouse
+**Check 20: Parameter Passing** — all parameters resolved correctly
+**Check 21: SQL Syntax Compatibility** — no runtime SQL errors
+
+## Step 9: Produce Validation Report
+
+```
+╔══════════════════════════════════════════════════════════════╗
+║              MIGRATION VALIDATION REPORT                     ║
+║  Job: <job_name> (<job_id>)                                  ║
+║  Path: <path>                                                ║
+║  Date: <date>                                                ║
+║  Mode: <cross-catalog / time-travel>                         ║
+╚══════════════════════════════════════════════════════════════╝
+
+TABLES VALIDATED: <n>/<total>
+  [per table: ✓ or ✗ with summary]
+
+CHECK RESULTS:
+  Structural:     <pass>/<total>  PASS/FAIL
+  Statistical:    <pass>/<total>  PASS/FAIL
+  Row-Level:      <pass>/<total>  PASS/FAIL
+  Semantic:       <pass>/<total>  PASS/FAIL
+  Edge Cases:     <pass>/<total>  PASS/FAIL
+  Serverless:     <pass>/<total>  PASS/FAIL  (if applicable)
+  DBSQL:          <pass>/<total>  PASS/FAIL  (if applicable)
+
+OVERALL: PASS / FAIL — <count> checks passed/failed
+
+PERFORMANCE:
+  [per task: classic time → serverless time (ratio)]
+
+FAILURES (if any):
+  Check <N> (<name>): <description>
+    Root cause: <analysis>
+    Suggested fix: <recommendation>
+    Reference: <change manifest cell/line>
+
+RECOMMENDATION:
+  ☐ APPROVED for repo commit (all checks pass)
+  ☐ NEEDS FIXES (see failures above, re-run after fixing)
+  ☐ NEEDS INVESTIGATION (non-obvious failures)
+═══════════════════════════════════════════════════════════════
+```
+
+## Step 10: Next Steps Based on Result
+
+**If PASS:**
+- Developer applies change manifest to repo source files
+- Commit to feature branch → CI/CD deploys to UAT
+- Re-run this validation to confirm CI/CD round-trip
+- After second PASS → PR merge → PROD deployment
+
+**If FAIL:**
+- Cross-reference failures with the change manifest
+- Identify the specific code change that caused the failure
+- Fix the staging copy, re-run the job, re-validate
+- Update the change manifest with additional fixes
+- Repeat until all checks pass
+
+Reference: resources/08-testing-validation-framework.md for the full environment promotion workflow
+
+## Cross-References
+
+- Validation check code: skills/conversion_validator/skill.md
+- Testing framework: resources/08-testing-validation-framework.md
+- Known issues (for failure diagnosis): resources/13-serverless-known-issues.md
+- ANSI patterns (for ANSI-related failures): resources/07-ansi-compliance-reference.md

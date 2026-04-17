@@ -1,0 +1,96 @@
+I need to assess the Azure DevOps repository artifacts for a batch of jobs being migrated to serverless compute. This assessment covers the repo-side changes: job JSON templates, PowerShell deployment scripts, and CI/CD pipeline variable groups.
+
+## Input
+
+I will provide:
+- The job names from the assessment report (from assess_databricks)
+- Access to the job JSON files and deployment scripts
+
+## Step 1: Audit Job JSON Templates
+
+For each job being migrated, check the job JSON template for:
+
+1. **job_clusters section present** — Must be removed for serverless
+2. **job_cluster_key on tasks** — Must be replaced with environment_key
+3. **environments block missing** — Must be added with:
+   - environment_key: "serverless_environment_v1"
+   - spec.client: "4"
+   - spec.dependencies: requirements.txt path with %env_name% placeholder
+4. **parameters block missing** — Must be added with:
+   - PATH_LANDING with %env_name% substitution
+   - PATH_DATALAKE with %env_name% substitution
+5. **queue setting missing** — Must add "queue": {"enabled": true}
+6. **performance_optimized missing** — Must add "performance_optimized": true
+7. **Hardcoded environment values** — Flag any instance of `uat`, `dev`, `prod` that should be `%env_name%`
+
+Reference: resources/16-cicd-change-guide.md for the canonical before/after JSON template.
+
+## Step 2: Audit PowerShell Deployment Script
+
+Check the deployment script (e.g., deploy_report_workflow_jobs.ps1) for:
+
+1. **%env_name% replacement exists** — The script must have:
+   ```powershell
+   $bodyJson = $bodyJson.Replace("%env_name%","$env_name")
+   ```
+   This was a known missing replacement discovered during migration.
+
+2. **All placeholders have matching .Replace() calls** — For every %placeholder% used in any job JSON, verify a corresponding .Replace() exists in the script.
+
+3. **Job create vs reset logic** — Verify the script uses jobs/reset for existing jobs (preserves job ID) and jobs/create only for new jobs. Job ID retention is critical for Autosys references.
+
+4. **Variable reading** — Verify the script reads all needed variables from the pipeline variable group:
+   ```powershell
+   $env_name="$($env:env_name)"
+   ```
+
+## Step 3: Audit Variable Groups
+
+Check that the pipeline variable groups have all required variables:
+
+| Variable | Purpose | Expected Values |
+|----------|---------|----------------|
+| env_name | Environment identifier | dev / uat / prod |
+| databricks_cluster | Workspace URL prefix | adb-XXXXX |
+| databricks_service_principal | SPN for API auth | UUID |
+| databricks_workspace_root_path_report | Notebook base path | //Users/... |
+| jobs_api_version | API version | 2.1 |
+
+No new variables should be needed — env_name already exists. But verify it's present in all environment-specific variable groups.
+
+## Step 4: Produce Repo Change Report
+
+```
+REPO-SIDE ASSESSMENT
+═══════════════════════════════════════════════
+
+JOB JSON CHANGES NEEDED:
+  <job_name>.json:
+    - [ ] Remove job_clusters section
+    - [ ] Remove job_cluster_key from tasks
+    - [ ] Add environment_key to tasks
+    - [ ] Add environments block
+    - [ ] Add parameters block
+    - [ ] Add queue and performance_optimized
+    - [ ] Add %env_name% in Volume path
+
+DEPLOYMENT SCRIPT CHANGES:
+  deploy_report_workflow_jobs.ps1:
+    - [ ] Add %env_name% replacement line
+    - [ ] Verify all other placeholders covered
+
+VARIABLE GROUP STATUS:
+  EIM_DA_HP_Reporting_UAT: env_name = uat ✓
+  EIM_DA_HP_Reporting_PROD: env_name = prod ✓
+
+WARNINGS:
+  <any hardcoded values, missing variables, etc.>
+```
+
+## Important Notes
+
+- Changes to the repo are ADDITIVE — do not remove existing .Replace() calls or variable group entries
+- The repo source files must keep %placeholder% tokens — never commit resolved values
+- Job JSON changes should be done on a feature branch, deployed to UAT first, validated, then promoted to PROD via CI/CD
+
+Reference: resources/16-cicd-change-guide.md

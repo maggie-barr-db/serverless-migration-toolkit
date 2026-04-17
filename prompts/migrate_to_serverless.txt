@@ -1,0 +1,156 @@
+I need to execute the Databricks-side migration for a single job. The assessment has already been completed (via assess_databricks) and I have the change manifest. Now apply the code fixes to staging copies in the workspace.
+
+## Input
+
+I will provide:
+- The job name and job ID
+- The migration path (A, B, C, or D)
+- The change manifest from the assessment
+- The notebook paths to modify
+
+## Important: Staging Copy Workflow
+
+Do NOT modify the original deployed notebooks. Follow this workflow:
+
+1. Copy each notebook to a staging folder: `/Workspace/Migration/staging/<job_name>/`
+2. Apply all changes ONLY to the staging copies
+3. The staging copies will have hardcoded environment values (e.g., `uat_catalog`) — this is expected for testing
+4. The developer will later apply the change manifest to the repo source files (which have %placeholder% tokens)
+5. Never export staging copies back to the repo
+
+## Step 1: Create Staging Copies
+
+For each notebook referenced by the job:
+```python
+# Copy to staging
+source = "/Workspace/<deployed_path>/<notebook>"
+staging = "/Workspace/Migration/staging/<job_name>/<notebook>"
+dbutils.notebook.entry_point.getDbutils().notebook().getContext()
+# Use Workspace API to copy
+```
+
+Preserve the folder structure in the staging area.
+
+## Step 2: Apply ANSI-Safe Fixes (Path A, B, C)
+
+Apply every ANSI fix from the change manifest. For each finding:
+
+1. Navigate to the specified cell/line
+2. Apply the exact replacement from the manifest
+3. Verify the fix is syntactically correct
+
+Key patterns:
+- `CAST(x AS INT)` → `TRY_CAST(x AS INT)`
+- `col / divisor` → `TRY_DIVIDE(col, divisor)` or null guard
+- `boolean_col = 1` → `boolean_col IS TRUE`
+- `to_date(col, fmt)` → `try_to_date(col, fmt)`
+- `to_timestamp(col, fmt)` → `try_to_timestamp(col, fmt)`
+- `array[i]` → `TRY_ELEMENT_AT(array, i+1)` or bounds check
+- `map['key']` → `TRY_ELEMENT_AT(map, 'key')`
+
+**Do NOT set spark.sql.ansi.enabled = false.** Fix the code instead.
+
+Reference: resources/07-ansi-compliance-reference.md
+
+## Step 3: Remove Unsupported Operations (Path B, C)
+
+- Remove `.persist()` / `.cache()` / `.unpersist()`
+- Remove `CACHE TABLE` / `UNCACHE TABLE`
+- Remove `REFRESH TABLE`
+- Remove `MSCK REPAIR TABLE`
+- Convert `CREATE MATERIALIZED VIEW` → note for SQL Warehouse task
+- Convert global temp views → session-scoped temp views
+
+Reference: resources/14-serverless-blockers.md
+
+## Step 4: Migrate Spark Configs (Path B, C)
+
+For each `spark.conf.set()` call:
+- If unsupported on serverless → remove (add comment noting removal)
+- If supported but default changed → evaluate if explicit set is needed
+- Remove `spark.sql.ansi.enabled = false` — fix code instead
+
+Reference: resources/05-spark-config-classic-to-serverless.md
+
+## Step 5: Migrate Environment Variables (Path B, C)
+
+Replace every `os.environ.get()` with `dbutils.widgets.get()`:
+
+```python
+# BEFORE:
+path_landing = os.environ.get("PATH_LANDING")
+
+# AFTER:
+path_landing = dbutils.widgets.get("PATH_LANDING")
+```
+
+These values come from the job-level parameters block in the job JSON.
+
+## Step 6: Migrate Dependencies (Path B, C)
+
+- Remove `%pip install` commands → dependencies are in the centralized requirements.txt
+- Remove `dbutils.library.install()` calls
+- Replace `com.crealytics.spark.excel` with pandas + openpyxl pattern
+
+Reference: resources/06-package-dependency-analysis.md
+
+## Step 7: Scala → PySpark Conversion (Path B Only)
+
+If this is a Scala→PySpark conversion, apply the scala_to_pyspark skill to each notebook BEFORE applying the other fixes. Order:
+1. Convert Scala → PySpark (faithful translation)
+2. Then apply ANSI fixes (Step 2)
+3. Then apply serverless fixes (Steps 3-6)
+
+Reference: skills/scala_to_pyspark/skill.md
+
+## Step 8: SQL → DBSQL Conversion (Path D Only)
+
+If converting to DBSQL SQL notebooks:
+1. Extract SQL from spark.sql() calls into direct SQL cells
+2. Convert Python variable interpolation to SQL parameters
+3. Remove display() wrappers (DBSQL auto-displays SELECT results)
+4. Convert dbutils.widgets to SQL parameter syntax
+
+Reference: resources/04-sql-to-dbsql-serverless.md
+
+## Step 9: Apply Performance Recommendations (All Paths)
+
+Only apply recommendations that don't change behavior:
+- `.count() > 0` → `.first() is not None` (safe, no behavioral change)
+- Remove manual `spark.sql.shuffle.partitions` setting (serverless auto-tunes)
+- Flag but do NOT auto-apply: .collect() loop rewrites, pandas_udf conversions (developer should review)
+
+Reference: resources/09-performance-optimization-patterns.md
+
+## Step 10: Generate Change Manifest
+
+After all changes are applied to staging copies, produce the final change manifest:
+
+```
+CHANGE MANIFEST — <job_name>
+═══════════════════════════════════════════════
+Total changes: <count>
+Notebooks modified: <count>
+
+Notebook: <name>
+  Cell <N>, Line <N>:
+    BEFORE: <exact original code>
+    AFTER:  <exact new code>
+    Reason: <check ID + description>
+    Category: ANSI / Unsupported Op / Config / Dependency / Performance
+
+[repeat for each change]
+```
+
+Save this manifest as `/Workspace/Migration/staging/<job_name>/change_manifest.md`
+
+The developer will use this manifest to apply changes to the repo source files.
+
+## Step 11: Create Test Job
+
+Create a temporary job pointing to the staging notebooks for validation:
+- Use the serverless job JSON template from resources/16-cicd-change-guide.md
+- Point notebook paths to the staging folder
+- Use the same parameters as the original job
+
+Run the test job and proceed to validation (validate_migration prompt).
