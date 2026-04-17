@@ -1,8 +1,12 @@
-## NOTE: This is a MANUAL assessment guide, not a Genie Code prompt.
+## NOTE: This runs OUTSIDE of Databricks — not a Genie Code prompt.
 
-Genie Code runs inside Databricks and does NOT have access to Azure DevOps repositories, PowerShell deployment scripts, or CI/CD pipeline configurations. This checklist is for a developer or DevOps engineer with access to the Azure DevOps repo to complete alongside the Databricks-side assessment.
+Genie Code runs inside Databricks and does NOT have access to Azure DevOps repositories, PowerShell deployment scripts, or CI/CD pipeline configurations.
 
-The Databricks-side assessment (assess_databricks.txt) will identify what repo-side changes are needed. This guide walks through how to verify and apply those changes.
+This guide is for whoever has access to the Azure DevOps repo:
+- **With VS Code + Copilot (or similar AI assistant):** This guide can be used as an agentic prompt — paste it into your AI tool with the repo files open and it can run the checks automatically.
+- **Without AI tooling:** Use this as a manual checklist to verify and apply changes.
+
+The Databricks-side assessment (assess_databricks.txt) identifies what repo-side changes are needed. This guide walks through how to verify and apply those changes.
 
 ---
 
