@@ -1,10 +1,19 @@
+## NOTE: This is a MANUAL assessment guide, not a Genie Code prompt.
+
+Genie Code runs inside Databricks and does NOT have access to Azure DevOps repositories, PowerShell deployment scripts, or CI/CD pipeline configurations. This checklist is for a developer or DevOps engineer with access to the Azure DevOps repo to complete alongside the Databricks-side assessment.
+
+The Databricks-side assessment (assess_databricks.txt) will identify what repo-side changes are needed. This guide walks through how to verify and apply those changes.
+
+---
+
 I need to assess the Azure DevOps repository artifacts for a batch of jobs being migrated to serverless compute. This assessment covers the repo-side changes: job JSON templates, PowerShell deployment scripts, and CI/CD pipeline variable groups.
 
 ## Input
 
-I will provide:
-- The job names from the assessment report (from assess_databricks)
-- Access to the job JSON files and deployment scripts
+You will need:
+- The job names and repo-side findings from the Databricks assessment report
+- Access to the Azure DevOps repository containing job JSON files and deployment scripts
+- Access to the pipeline variable groups in Azure DevOps
 
 ## Step 1: Audit Job JSON Templates
 
