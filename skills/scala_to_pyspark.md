@@ -68,16 +68,16 @@ Scala case classes used for typed Datasets have no PySpark equivalent. Convert b
 - Convert to a `StructType`:
 ```python
 # Scala:
-# case class RawClaim(claim_id: String, amount: Double)
-# val df = spark.read.as[RawClaim]
+# case class Record(record_id: String, amount: Double)
+# val df = spark.read.as[Record]
 
 # PySpark:
 from pyspark.sql.types import StructType, StructField, StringType, DoubleType
-raw_claim_schema = StructType([
-    StructField("claim_id", StringType(), nullable=False),
+record_schema = StructType([
+    StructField("record_id", StringType(), nullable=False),
     StructField("amount", DoubleType(), nullable=True),
 ])
-df = spark.read.schema(raw_claim_schema).csv(...)
+df = spark.read.schema(record_schema).csv(...)
 ```
 
 **If used as a data container in non-Spark code:**
@@ -285,11 +285,11 @@ Window functions are nearly identical. Only the import and column reference synt
 
 ```python
 # Scala:
-# val w = Window.partitionBy($"member_id").orderBy($"claim_date")
+# val w = Window.partitionBy($"group_id").orderBy($"event_date")
 # df.withColumn("rank", row_number().over(w))
 
 # PySpark:
-w = Window.partitionBy("member_id").orderBy("claim_date")
+w = Window.partitionBy("group_id").orderBy("event_date")
 df = df.withColumn("rank", F.row_number().over(w))
 ```
 

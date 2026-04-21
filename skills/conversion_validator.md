@@ -1,29 +1,32 @@
 # Conversion Validator
 
-This skill teaches you how to validate that converted code (Scala → PySpark, DBR 13.3 → 16.4, or both) produces output identical to the original pipeline. It provides 14 validation checks organized from fast/cheap to slow/thorough, with special attention to the silent data differences that commonly occur during language and runtime conversions.
+This skill provides a complete 18-check validation framework for verifying that converted code (Scala to PySpark, DBR 13.3 to 16.4, classic to serverless, or any combination) produces output identical to the original pipeline. All validation code is inline and self-contained.
 
 ## Validation Approach
 
 Run all checks in order for every table pair. Earlier checks are fast and narrow; later checks are thorough and expensive. If an earlier check fails, later checks provide the detail needed to diagnose the root cause.
 
 **Check categories:**
-- Checks 1-2: Structure (schema, row count) — seconds to run
-- Checks 3-5: Statistical (nulls, aggregates, distinct values) — seconds to minutes
-- Checks 6-7: Row-level (full data comparison, date deep dive) — minutes
-- Checks 8-12: Semantic equivalence (null confusion, type coercion, rounding, UDF behavior) — minutes
-- Checks 13-14: Edge cases and non-determinism — minutes
+- Checks 1-2: Structure (schema, row count) -- seconds to run
+- Checks 3-5: Statistical (nulls, aggregates, distinct values) -- seconds to minutes
+- Checks 6-7: Row-level (full data comparison, date deep dive) -- minutes
+- Checks 8-12: Semantic equivalence (null confusion, type coercion, rounding, UDF behavior) -- minutes
+- Checks 13-14: Edge cases and non-determinism -- minutes
+- Checks 15-18: Serverless-specific (compute verification, config compliance, env key, performance) -- seconds to minutes
+
+---
 
 ## Comparison Modes
 
-### Mode 1: Side-by-Side (Separate Schemas)
+### Mode 1: Cross-Catalog (Separate Schemas)
 
 The original and converted pipelines write to different schemas. Compare across schemas.
 
-**When to use:** During development and testing. Safest approach — original data is untouched.
+**When to use:** During development and testing. Safest approach -- original data is untouched.
 
 ```python
-original_df = spark.table("main.scala_claims_demo.claims_silver")
-converted_df = spark.table("main.pyspark_claims_demo.claims_silver")
+original_df = spark.table("catalog.original_schema.table_name")
+converted_df = spark.table("catalog.converted_schema.table_name")
 ```
 
 ### Mode 2: Time Travel (Same Table, Different Versions)
@@ -35,64 +38,107 @@ The converted pipeline overwrites the same tables. Compare the current version a
 ```python
 # Get baseline version BEFORE running converted pipeline
 from delta.tables import DeltaTable
-baseline_version = DeltaTable.forName(spark, "main.scala_claims_demo.claims_silver").history(1).select("version").collect()[0][0]
+baseline_version = (
+    DeltaTable.forName(spark, "catalog.schema.table_name")
+    .history(1)
+    .select("version")
+    .collect()[0][0]
+)
 
 # After running converted pipeline:
-original_df = spark.read.format("delta").option("versionAsOf", baseline_version).table("main.scala_claims_demo.claims_silver")
-converted_df = spark.table("main.scala_claims_demo.claims_silver")
+original_df = (
+    spark.read.format("delta")
+    .option("versionAsOf", baseline_version)
+    .table("catalog.schema.table_name")
+)
+converted_df = spark.table("catalog.schema.table_name")
 ```
 
 Or via SQL:
 ```sql
-DESCRIBE HISTORY main.scala_claims_demo.claims_silver LIMIT 1;
-SELECT * FROM main.scala_claims_demo.claims_silver VERSION AS OF 3;
+DESCRIBE HISTORY catalog.schema.table_name LIMIT 1;
+SELECT * FROM catalog.schema.table_name VERSION AS OF 3;
 ```
 
-**Important:** Delta time travel requires retention period hasn't expired (default 30 days).
+**Important:** Delta time travel requires retention period has not expired (default 30 days).
 
 ### Choosing a Mode
 
 The validator notebook should accept a `mode` parameter:
-- `mode = "side_by_side"` — provide `original_schema` and `converted_schema`
-- `mode = "time_travel"` — provide `schema` and `baseline_version`
+- `mode = "cross_catalog"` -- provide `original_schema` and `converted_schema`
+- `mode = "time_travel"` -- provide `schema` and `baseline_version`
 
 All checks below work identically regardless of mode.
 
 ## Prerequisites
 
 1. The **original pipeline** has been run and produced output tables
-2. The **converted pipeline** has been run — either to a separate schema or to the same tables
+2. The **converted pipeline** has been run -- either to a separate schema or to the same tables
 3. Both pipelines used the **same input data**
 4. For time travel mode: baseline version number recorded before running converted pipeline
 
-## Setup
+---
 
-Before running checks, build the joined DataFrame that most checks use:
+## Setup Code
+
+Before running checks, build the joined DataFrame that most checks use.
 
 ```python
-# Identify the primary key for each table
-# (should be defined in config — e.g., claim_id for claims tables)
-pk_col = "claim_id"
-
-# Exclude metadata columns
-exclude_cols = {"_ingestion_timestamp", "_transform_timestamp", "_source_file", "_row_hash"}
-
-# Get compare columns
-compare_columns = [c for c in original_df.columns if c not in exclude_cols and c != pk_col]
-
-# Classify columns by type
-from pyspark.sql.types import *
-numeric_cols = [f.name for f in original_df.schema.fields if isinstance(f.dataType, (IntegerType, LongType, FloatType, DoubleType, DecimalType)) and f.name not in exclude_cols]
-string_cols = [f.name for f in original_df.schema.fields if isinstance(f.dataType, StringType) and f.name not in exclude_cols]
-date_cols = [f.name for f in original_df.schema.fields if isinstance(f.dataType, DateType) and f.name not in exclude_cols]
-timestamp_cols = [f.name for f in original_df.schema.fields if isinstance(f.dataType, TimestampType) and f.name not in exclude_cols]
-boolean_cols = [f.name for f in original_df.schema.fields if isinstance(f.dataType, BooleanType) and f.name not in exclude_cols]
-
-# Identify string columns that likely contain dates (by name pattern)
+from pyspark.sql import functions as F
+from pyspark.sql.types import (
+    IntegerType, LongType, FloatType, DoubleType, DecimalType,
+    StringType, DateType, TimestampType, BooleanType
+)
 import re
-string_date_cols = [c for c in string_cols if re.search(r'date|_dt$|_dob|_dod|_dos|timestamp|_time$', c, re.IGNORECASE)]
 
-# Build the joined DataFrame (used by most checks)
+# --- Configuration (customize per table) ---
+pk_col = "primary_key_column"  # Primary key column name
+
+# Metadata columns to exclude from comparison (will always differ between runs)
+exclude_cols = {
+    "_ingestion_timestamp", "_transform_timestamp",
+    "_source_file", "_row_hash"
+}
+
+# --- Column classification ---
+compare_columns = [
+    c for c in original_df.columns
+    if c not in exclude_cols and c != pk_col
+]
+
+numeric_cols = [
+    f.name for f in original_df.schema.fields
+    if isinstance(f.dataType, (IntegerType, LongType, FloatType, DoubleType, DecimalType))
+    and f.name not in exclude_cols
+]
+
+string_cols = [
+    f.name for f in original_df.schema.fields
+    if isinstance(f.dataType, StringType) and f.name not in exclude_cols
+]
+
+date_cols = [
+    f.name for f in original_df.schema.fields
+    if isinstance(f.dataType, DateType) and f.name not in exclude_cols
+]
+
+timestamp_cols = [
+    f.name for f in original_df.schema.fields
+    if isinstance(f.dataType, TimestampType) and f.name not in exclude_cols
+]
+
+boolean_cols = [
+    f.name for f in original_df.schema.fields
+    if isinstance(f.dataType, BooleanType) and f.name not in exclude_cols
+]
+
+# String columns that likely contain dates (by name pattern)
+string_date_cols = [
+    c for c in string_cols
+    if re.search(r'date|_dt$|_dob|_dod|_dos|timestamp|_time$', c, re.IGNORECASE)
+]
+
+# --- Build joined DataFrame (used by most checks) ---
 joined = original_df.alias("o").join(
     converted_df.alias("c"),
     on=pk_col,
@@ -109,8 +155,14 @@ joined = original_df.alias("o").join(
 Compare column names, types, and nullability.
 
 ```python
-original_fields = {f.name: (str(f.dataType), f.nullable) for f in original_df.schema.fields if f.name not in exclude_cols}
-converted_fields = {f.name: (str(f.dataType), f.nullable) for f in converted_df.schema.fields if f.name not in exclude_cols}
+original_fields = {
+    f.name: (str(f.dataType), f.nullable)
+    for f in original_df.schema.fields if f.name not in exclude_cols
+}
+converted_fields = {
+    f.name: (str(f.dataType), f.nullable)
+    for f in converted_df.schema.fields if f.name not in exclude_cols
+}
 
 # Missing columns
 only_original = set(original_fields.keys()) - set(converted_fields.keys())
@@ -120,13 +172,19 @@ only_converted = set(converted_fields.keys()) - set(original_fields.keys())
 type_mismatches = {}
 for col_name in set(original_fields.keys()) & set(converted_fields.keys()):
     if original_fields[col_name][0] != converted_fields[col_name][0]:
-        type_mismatches[col_name] = (original_fields[col_name][0], converted_fields[col_name][0])
+        type_mismatches[col_name] = (
+            original_fields[col_name][0],
+            converted_fields[col_name][0]
+        )
 
 # Nullable mismatches
 nullable_mismatches = {}
 for col_name in set(original_fields.keys()) & set(converted_fields.keys()):
     if original_fields[col_name][1] != converted_fields[col_name][1]:
-        nullable_mismatches[col_name] = (original_fields[col_name][1], converted_fields[col_name][1])
+        nullable_mismatches[col_name] = (
+            original_fields[col_name][1],
+            converted_fields[col_name][1]
+        )
 ```
 
 **Pass criteria:** No missing columns, no type mismatches. Nullable differences are informational warnings.
@@ -136,11 +194,8 @@ for col_name in set(original_fields.keys()) & set(converted_fields.keys()):
 ```python
 original_count = original_df.count()
 converted_count = converted_df.count()
-```
 
-Also check for rows in one but not the other via the full outer join:
-
-```python
+# Check for rows in one but not the other via the full outer join
 only_in_original = joined.filter(F.col(f"c.{pk_col}").isNull()).count()
 only_in_converted = joined.filter(F.col(f"o.{pk_col}").isNull()).count()
 ```
@@ -171,6 +226,7 @@ for col_name in compare_columns:
 Compare summary statistics for numeric columns.
 
 ```python
+agg_diffs = {}
 for col_name in numeric_cols:
     o_stats = original_df.agg(
         F.sum(col_name).alias("sum"),
@@ -181,30 +237,66 @@ for col_name in numeric_cols:
         F.count(F.when(F.col(col_name) == 0, True)).alias("zero_count"),
         F.count(F.when(F.col(col_name) < 0, True)).alias("negative_count")
     ).collect()[0]
-    
+
     c_stats = converted_df.agg(
-        # same aggregations
+        F.sum(col_name).alias("sum"),
+        F.avg(col_name).alias("avg"),
+        F.min(col_name).alias("min"),
+        F.max(col_name).alias("max"),
+        F.stddev(col_name).alias("stddev"),
+        F.count(F.when(F.col(col_name) == 0, True)).alias("zero_count"),
+        F.count(F.when(F.col(col_name) < 0, True)).alias("negative_count")
     ).collect()[0]
+
+    diffs = {}
+    # Exact match checks
+    for stat in ["sum", "min", "max", "zero_count", "negative_count"]:
+        o_val = o_stats[stat]
+        c_val = c_stats[stat]
+        if o_val != c_val:
+            # Allow floating-point tolerance for sum/min/max
+            if stat in ("sum", "min", "max") and o_val is not None and c_val is not None:
+                if abs(float(o_val) - float(c_val)) > 1e-6:
+                    diffs[stat] = (o_val, c_val)
+            else:
+                diffs[stat] = (o_val, c_val)
+
+    # Tolerance checks
+    for stat in ["avg", "stddev"]:
+        o_val = o_stats[stat]
+        c_val = c_stats[stat]
+        if o_val is not None and c_val is not None:
+            if abs(float(o_val) - float(c_val)) > 1e-6:
+                diffs[stat] = (o_val, c_val)
+
+    if diffs:
+        agg_diffs[col_name] = diffs
 ```
 
-Compare with tolerances:
-- `sum`, `min`, `max`: exact match (or within 1e-6 for floating-point)
-- `avg`, `stddev`: within 1e-6
-- `zero_count`, `negative_count`: exact match
-
-**Pass criteria:** All stats within tolerance. Zero count and negative count must match exactly — they often reveal ANSI mode differences.
+**Pass criteria:** All stats within tolerance. Zero count and negative count must match exactly -- they often reveal ANSI mode differences.
 
 ### Check 5: Distinct Value Comparison
 
 For string and categorical columns, compare distinct value sets.
 
 ```python
+distinct_diffs = {}
 for col_name in string_cols:
-    o_distinct = set(row[0] for row in original_df.select(col_name).distinct().collect())
-    c_distinct = set(row[0] for row in converted_df.select(col_name).distinct().collect())
-    
-    only_in_original = o_distinct - c_distinct
-    only_in_converted = c_distinct - o_distinct
+    o_distinct = set(
+        row[0] for row in original_df.select(col_name).distinct().collect()
+    )
+    c_distinct = set(
+        row[0] for row in converted_df.select(col_name).distinct().collect()
+    )
+
+    only_in_orig = o_distinct - c_distinct
+    only_in_conv = c_distinct - o_distinct
+
+    if only_in_orig or only_in_conv:
+        distinct_diffs[col_name] = {
+            "only_original": only_in_orig,
+            "only_converted": only_in_conv
+        }
 ```
 
 **Pass criteria:** Identical distinct value sets per column.
@@ -234,7 +326,7 @@ for col_name in compare_columns:
         ).show(10, truncate=False)
 ```
 
-**Key:** Use `eqNullSafe` — regular `==` treats null == null as null (not true).
+**Key:** Use `eqNullSafe` -- regular `==` treats null == null as null (not true).
 
 **Pass criteria:** Zero mismatches across all columns.
 
@@ -243,8 +335,7 @@ for col_name in compare_columns:
 #### 7a: Identify All Date/Timestamp Columns
 
 ```python
-# Already classified in Setup section above:
-# date_cols, timestamp_cols, string_date_cols
+# Already classified in Setup section above
 print(f"Date columns: {date_cols}")
 print(f"Timestamp columns: {timestamp_cols}")
 print(f"String date columns: {string_date_cols}")
@@ -270,20 +361,27 @@ for col_name in date_cols:
 ```python
 for col_name in date_cols:
     shifted = joined.filter(
-        F.col(f"o.{col_name}").isNotNull() & F.col(f"c.{col_name}").isNotNull() &
-        (F.abs(F.datediff(F.col(f"o.{col_name}"), F.col(f"c.{col_name}"))) == 1)
+        F.col(f"o.{col_name}").isNotNull()
+        & F.col(f"c.{col_name}").isNotNull()
+        & (F.abs(F.datediff(F.col(f"o.{col_name}"), F.col(f"c.{col_name}"))) == 1)
     )
     if shifted.count() > 0:
-        print(f"WARNING: {col_name} has {shifted.count()} rows off by exactly 1 day — likely timezone issue")
+        print(f"WARNING: {col_name} has {shifted.count()} rows off by exactly 1 day -- likely timezone issue")
 
 for col_name in timestamp_cols:
     hour_diff = joined.withColumn(
         "hour_diff",
-        F.abs((F.unix_timestamp(F.col(f"o.{col_name}")) - F.unix_timestamp(F.col(f"c.{col_name}"))) / 3600)
+        F.abs(
+            (F.unix_timestamp(F.col(f"o.{col_name}"))
+             - F.unix_timestamp(F.col(f"c.{col_name}")))
+            / 3600
+        )
     ).filter(F.col("hour_diff").between(0.5, 24))
     if hour_diff.count() > 0:
         print(f"WARNING: {col_name} has {hour_diff.count()} rows with hour-level offset")
-        hour_diff.groupBy(F.round("hour_diff", 1).alias("hours_off")).count().orderBy("hours_off").show()
+        hour_diff.groupBy(
+            F.round("hour_diff", 1).alias("hours_off")
+        ).count().orderBy("hours_off").show()
 ```
 
 #### 7d: Null vs Epoch Zero Confusion
@@ -294,15 +392,17 @@ epoch_ts = F.lit("1970-01-01 00:00:00").cast("timestamp")
 
 for col_name in date_cols:
     null_to_epoch = joined.filter(
-        F.col(f"o.{col_name}").isNull() & (F.col(f"c.{col_name}") == epoch_date)
+        F.col(f"o.{col_name}").isNull()
+        & (F.col(f"c.{col_name}") == epoch_date)
     ).count()
     epoch_to_null = joined.filter(
-        (F.col(f"o.{col_name}") == epoch_date) & F.col(f"c.{col_name}").isNull()
+        (F.col(f"o.{col_name}") == epoch_date)
+        & F.col(f"c.{col_name}").isNull()
     ).count()
     if null_to_epoch > 0:
-        print(f"WARNING: {col_name} — {null_to_epoch} rows where null became 1970-01-01")
+        print(f"WARNING: {col_name} -- {null_to_epoch} rows where null became 1970-01-01")
     if epoch_to_null > 0:
-        print(f"WARNING: {col_name} — {epoch_to_null} rows where 1970-01-01 became null")
+        print(f"WARNING: {col_name} -- {epoch_to_null} rows where 1970-01-01 became null")
 ```
 
 #### 7e: Date Boundary Cases
@@ -310,12 +410,25 @@ for col_name in date_cols:
 ```python
 for col_name in date_cols:
     for subset_name, subset_filter in [
-        ("leap_year_feb29", (F.month(F.col(f"o.{col_name}")) == 2) & (F.dayofmonth(F.col(f"o.{col_name}")) == 29)),
-        ("month_end_28_31", F.dayofmonth(F.col(f"o.{col_name}")) >= 28),
-        ("year_boundary", (F.dayofyear(F.col(f"o.{col_name}")) <= 1) | (F.dayofyear(F.col(f"o.{col_name}")) >= 365)),
+        (
+            "leap_year_feb29",
+            (F.month(F.col(f"o.{col_name}")) == 2)
+            & (F.dayofmonth(F.col(f"o.{col_name}")) == 29)
+        ),
+        (
+            "month_end_28_31",
+            F.dayofmonth(F.col(f"o.{col_name}")) >= 28
+        ),
+        (
+            "year_boundary",
+            (F.dayofyear(F.col(f"o.{col_name}")) <= 1)
+            | (F.dayofyear(F.col(f"o.{col_name}")) >= 365)
+        ),
     ]:
         subset = joined.filter(subset_filter)
-        mismatches = subset.filter(~F.col(f"o.{col_name}").eqNullSafe(F.col(f"c.{col_name}")))
+        mismatches = subset.filter(
+            ~F.col(f"o.{col_name}").eqNullSafe(F.col(f"c.{col_name}"))
+        )
         if mismatches.count() > 0:
             print(f"WARNING: {col_name} has {mismatches.count()} mismatches in {subset_name} dates")
 ```
@@ -334,8 +447,16 @@ for col_name in date_cols + timestamp_cols:
 
 ```python
 for col_name in string_date_cols:
-    o_sample = [r[0] for r in original_df.filter(F.col(col_name).isNotNull()).select(col_name).limit(10).collect()]
-    c_sample = [r[0] for r in converted_df.filter(F.col(col_name).isNotNull()).select(col_name).limit(10).collect()]
+    o_sample = [
+        r[0] for r in original_df.filter(
+            F.col(col_name).isNotNull()
+        ).select(col_name).limit(10).collect()
+    ]
+    c_sample = [
+        r[0] for r in converted_df.filter(
+            F.col(col_name).isNotNull()
+        ).select(col_name).limit(10).collect()
+    ]
     print(f"{col_name} original samples: {o_sample}")
     print(f"{col_name} converted samples: {c_sample}")
 ```
@@ -346,7 +467,7 @@ for col_name in string_date_cols:
 
 ## Semantic Equivalence Checks
 
-These checks catch silent data differences where the values are "close" but semantically wrong. They are specifically designed for the failure modes that occur during Scala → PySpark and DBR upgrade conversions.
+These checks catch silent data differences where the values are "close" but semantically wrong. They are specifically designed for the failure modes that occur during Scala to PySpark and DBR upgrade conversions.
 
 ### Check 8: Null vs Empty String Confusion
 
@@ -356,43 +477,44 @@ The most common silent bug in UDF conversion. Scala `null` and Python `None` bot
 for col_name in string_cols:
     # Original has null, converted has empty string
     null_to_empty = joined.filter(
-        F.col(f"o.{col_name}").isNull() &
-        F.col(f"c.{col_name}").isNotNull() &
-        (F.trim(F.col(f"c.{col_name}")) == "")
+        F.col(f"o.{col_name}").isNull()
+        & F.col(f"c.{col_name}").isNotNull()
+        & (F.trim(F.col(f"c.{col_name}")) == "")
     ).count()
-    
+
     # Original has empty string, converted has null
     empty_to_null = joined.filter(
-        F.col(f"o.{col_name}").isNotNull() &
-        (F.trim(F.col(f"o.{col_name}")) == "") &
-        F.col(f"c.{col_name}").isNull()
+        F.col(f"o.{col_name}").isNotNull()
+        & (F.trim(F.col(f"o.{col_name}")) == "")
+        & F.col(f"c.{col_name}").isNull()
     ).count()
-    
+
     # Original has null, converted has some default string value
     null_to_default = joined.filter(
-        F.col(f"o.{col_name}").isNull() &
-        F.col(f"c.{col_name}").isNotNull() &
-        (F.trim(F.col(f"c.{col_name}")) != "")
+        F.col(f"o.{col_name}").isNull()
+        & F.col(f"c.{col_name}").isNotNull()
+        & (F.trim(F.col(f"c.{col_name}")) != "")
     )
     null_to_default_count = null_to_default.count()
-    
+
     if null_to_empty > 0:
-        print(f"SEMANTIC: {col_name} — {null_to_empty} rows where null became empty string")
+        print(f"SEMANTIC: {col_name} -- {null_to_empty} rows where null became empty string")
     if empty_to_null > 0:
-        print(f"SEMANTIC: {col_name} — {empty_to_null} rows where empty string became null")
+        print(f"SEMANTIC: {col_name} -- {empty_to_null} rows where empty string became null")
     if null_to_default_count > 0:
-        # Show what default values appeared
-        defaults = null_to_default.groupBy(F.col(f"c.{col_name}").alias("default_value")).count().orderBy(F.desc("count"))
-        print(f"SEMANTIC: {col_name} — {null_to_default_count} rows where null became a default value:")
+        defaults = null_to_default.groupBy(
+            F.col(f"c.{col_name}").alias("default_value")
+        ).count().orderBy(F.desc("count"))
+        print(f"SEMANTIC: {col_name} -- {null_to_default_count} rows where null became a default value:")
         defaults.show(10, truncate=False)
 ```
 
-**Why this matters:** 
-- `WHERE col IS NULL` won't match empty strings — changes filter counts
-- `JOIN ON a.col = b.col` — null != null (no match), but "" == "" (matches) — changes join cardinality
-- `COUNT(col)` counts non-null values — empty strings are counted, nulls aren't
+**Why this matters:**
+- `WHERE col IS NULL` will not match empty strings -- changes filter counts
+- `JOIN ON a.col = b.col` -- null != null (no match), but "" == "" (matches) -- changes join cardinality
+- `COUNT(col)` counts non-null values -- empty strings are counted, nulls are not
 
-**Pass criteria:** Zero null ↔ empty string conversions, zero null → default value conversions.
+**Pass criteria:** Zero null-to-empty-string conversions, zero null-to-default-value conversions.
 
 ### Check 9: Null vs Zero/Default Numeric Confusion
 
@@ -402,34 +524,34 @@ Same concept as Check 8 but for numeric columns. A UDF returning `0` or `0.0` in
 for col_name in numeric_cols:
     # Null became zero
     null_to_zero = joined.filter(
-        F.col(f"o.{col_name}").isNull() &
-        (F.col(f"c.{col_name}") == 0)
+        F.col(f"o.{col_name}").isNull()
+        & (F.col(f"c.{col_name}") == 0)
     ).count()
-    
+
     # Zero became null
     zero_to_null = joined.filter(
-        (F.col(f"o.{col_name}") == 0) &
-        F.col(f"c.{col_name}").isNull()
+        (F.col(f"o.{col_name}") == 0)
+        & F.col(f"c.{col_name}").isNull()
     ).count()
-    
+
     # Null became some other default
     null_to_other = joined.filter(
-        F.col(f"o.{col_name}").isNull() &
-        F.col(f"c.{col_name}").isNotNull() &
-        (F.col(f"c.{col_name}") != 0)
+        F.col(f"o.{col_name}").isNull()
+        & F.col(f"c.{col_name}").isNotNull()
+        & (F.col(f"c.{col_name}") != 0)
     ).count()
-    
+
     if null_to_zero > 0:
-        print(f"SEMANTIC: {col_name} — {null_to_zero} rows where null became 0")
+        print(f"SEMANTIC: {col_name} -- {null_to_zero} rows where null became 0")
     if zero_to_null > 0:
-        print(f"SEMANTIC: {col_name} — {zero_to_null} rows where 0 became null")
+        print(f"SEMANTIC: {col_name} -- {zero_to_null} rows where 0 became null")
     if null_to_other > 0:
-        print(f"SEMANTIC: {col_name} — {null_to_other} rows where null became a non-zero default")
+        print(f"SEMANTIC: {col_name} -- {null_to_other} rows where null became a non-zero default")
 ```
 
-**Why this matters:** `SUM(col)` ignores nulls but includes zeros. `AVG(col)` ignores nulls but divides by count including zeros. A column with 100 values and 10 nulls has AVG = sum/90. If nulls become zeros, AVG = sum/100 — different result.
+**Why this matters:** `SUM(col)` ignores nulls but includes zeros. `AVG(col)` ignores nulls but divides by count including zeros. A column with 100 values and 10 nulls has AVG = sum/90. If nulls become zeros, AVG = sum/100 -- different result.
 
-**Pass criteria:** Zero null ↔ zero conversions, zero null → default conversions.
+**Pass criteria:** Zero null-to-zero conversions, zero null-to-default conversions.
 
 ### Check 10: Boolean/Flag Column Equivalence
 
@@ -439,38 +561,32 @@ Check columns that represent flags, categories, or status values for semantic eq
 for col_name in string_cols:
     # Check for case differences (e.g., "NORMAL" vs "Normal" vs "normal")
     case_diff = joined.filter(
-        F.col(f"o.{col_name}").isNotNull() &
-        F.col(f"c.{col_name}").isNotNull() &
-        (F.col(f"o.{col_name}") != F.col(f"c.{col_name}")) &
-        (F.upper(F.col(f"o.{col_name}")) == F.upper(F.col(f"c.{col_name}")))
+        F.col(f"o.{col_name}").isNotNull()
+        & F.col(f"c.{col_name}").isNotNull()
+        & (F.col(f"o.{col_name}") != F.col(f"c.{col_name}"))
+        & (F.upper(F.col(f"o.{col_name}")) == F.upper(F.col(f"c.{col_name}")))
     ).count()
-    
+
     # Check for whitespace differences
     whitespace_diff = joined.filter(
-        F.col(f"o.{col_name}").isNotNull() &
-        F.col(f"c.{col_name}").isNotNull() &
-        (F.col(f"o.{col_name}") != F.col(f"c.{col_name}")) &
-        (F.trim(F.col(f"o.{col_name}")) == F.trim(F.col(f"c.{col_name}")))
+        F.col(f"o.{col_name}").isNotNull()
+        & F.col(f"c.{col_name}").isNotNull()
+        & (F.col(f"o.{col_name}") != F.col(f"c.{col_name}"))
+        & (F.trim(F.col(f"o.{col_name}")) == F.trim(F.col(f"c.{col_name}")))
     ).count()
-    
-    # Check for True/False vs "true"/"false" vs 1/0 confusion
-    # (relevant for boolean-like string columns)
-    
-    if case_diff > 0:
-        print(f"SEMANTIC: {col_name} — {case_diff} rows differ only in case")
-    if whitespace_diff > 0:
-        print(f"SEMANTIC: {col_name} — {whitespace_diff} rows differ only in whitespace")
-```
 
-Also for boolean columns:
-```python
+    if case_diff > 0:
+        print(f"SEMANTIC: {col_name} -- {case_diff} rows differ only in case")
+    if whitespace_diff > 0:
+        print(f"SEMANTIC: {col_name} -- {whitespace_diff} rows differ only in whitespace")
+
+# Also check actual boolean columns
 for col_name in boolean_cols:
     mismatches = joined.filter(
         ~F.col(f"o.{col_name}").eqNullSafe(F.col(f"c.{col_name}"))
     ).count()
     if mismatches > 0:
-        # Show the distribution of true/false/null in both
-        print(f"BOOLEAN DIFF: {col_name} — {mismatches} mismatches")
+        print(f"BOOLEAN DIFF: {col_name} -- {mismatches} mismatches")
         joined.groupBy(
             F.col(f"o.{col_name}").alias("original"),
             F.col(f"c.{col_name}").alias("converted")
@@ -487,15 +603,16 @@ Detect rounding differences caused by Scala BigDecimal HALF_UP vs Python banker'
 for col_name in numeric_cols:
     # Find rows that differ
     diffs = joined.filter(
-        F.col(f"o.{col_name}").isNotNull() &
-        F.col(f"c.{col_name}").isNotNull() &
-        (F.col(f"o.{col_name}") != F.col(f"c.{col_name}"))
+        F.col(f"o.{col_name}").isNotNull()
+        & F.col(f"c.{col_name}").isNotNull()
+        & (F.col(f"o.{col_name}") != F.col(f"c.{col_name}"))
     )
-    
+
     if diffs.count() > 0:
         # Categorize the magnitude of differences
         diff_analysis = diffs.withColumn(
-            "abs_diff", F.abs(F.col(f"o.{col_name}") - F.col(f"c.{col_name}"))
+            "abs_diff",
+            F.abs(F.col(f"o.{col_name}") - F.col(f"c.{col_name}"))
         ).withColumn(
             "diff_category",
             F.when(F.col("abs_diff") < 1e-10, "floating_point_noise")
@@ -503,10 +620,10 @@ for col_name in numeric_cols:
              .when(F.col("abs_diff") < 1.0, "small_difference")
              .otherwise("large_difference")
         )
-        
-        print(f"PRECISION: {col_name} — difference distribution:")
+
+        print(f"PRECISION: {col_name} -- difference distribution:")
         diff_analysis.groupBy("diff_category").count().orderBy("diff_category").show()
-        
+
         # Show samples of each category
         for cat in ["rounding_difference", "small_difference", "large_difference"]:
             samples = diff_analysis.filter(F.col("diff_category") == cat)
@@ -518,68 +635,69 @@ for col_name in numeric_cols:
                     F.col(f"c.{col_name}").alias("converted"),
                     "abs_diff"
                 ).show(5, truncate=False)
-        
-        # Check for rounding pattern: values that differ by exactly 0.01
+
+        # Check for rounding pattern: values that differ by exactly ~0.01
         # (common with HALF_UP vs banker's rounding)
         rounding_pattern = diffs.filter(
-            F.abs(F.col(f"o.{col_name}") - F.col(f"c.{col_name}")).between(0.005, 0.015)
+            F.abs(
+                F.col(f"o.{col_name}") - F.col(f"c.{col_name}")
+            ).between(0.005, 0.015)
         ).count()
         if rounding_pattern > 0:
-            print(f"  LIKELY ROUNDING ISSUE: {rounding_pattern} rows differ by ~0.01 — check BigDecimal/round() conversion")
+            print(
+                f"  LIKELY ROUNDING ISSUE: {rounding_pattern} rows differ by ~0.01"
+                " -- check BigDecimal/round() conversion"
+            )
 ```
 
-**Pass criteria:** 
+**Pass criteria:**
 - `floating_point_noise` (< 1e-10): acceptable, ignore
-- `rounding_difference` (< 0.01): investigate — likely BigDecimal conversion issue
-- `small_difference` (< 1.0): failure — logic difference
-- `large_difference` (>= 1.0): failure — wrong calculation
+- `rounding_difference` (< 0.01): investigate -- likely BigDecimal conversion issue
+- `small_difference` (< 1.0): failure -- logic difference
+- `large_difference` (>= 1.0): failure -- wrong calculation
 
 ### Check 12: UDF Output Consistency
 
-For columns known to be produced by UDFs (identify from the conversion report or by column name patterns), run targeted checks.
+For columns known to be produced by UDFs, run targeted checks. Customize the `udf_columns` dict per pipeline.
 
 ```python
 # Define UDF-produced columns (customize per pipeline)
+# Format: {"output_column_name": "UDF function name"}
 udf_columns = {
-    "diagnosis_category": "categorizeDiagnosis UDF",
-    "risk_score": "calculateRiskScore UDF", 
-    "denial_code": "cleanDenialCode UDF",
-    "claim_date_parsed": "parseDateUdf",
-    "gender_standard": "standardizeGender",
+    # "column_name": "udf_name",
 }
 
 for col_name, udf_name in udf_columns.items():
     if col_name not in compare_columns:
         continue
-    
-    print(f"\n=== UDF Check: {udf_name} → {col_name} ===")
-    
+
+    print(f"\n=== UDF Check: {udf_name} -> {col_name} ===")
+
     # Count mismatches
     mismatches = joined.filter(
         ~F.col(f"o.{col_name}").eqNullSafe(F.col(f"c.{col_name}"))
     )
     cnt = mismatches.count()
-    
+
     if cnt == 0:
         print(f"  PASS: {cnt} mismatches")
         continue
-    
+
     print(f"  FAIL: {cnt} mismatches")
-    
+
     # Categorize mismatch types
     null_related = mismatches.filter(
         F.col(f"o.{col_name}").isNull() | F.col(f"c.{col_name}").isNull()
     ).count()
-    
+
     value_different = mismatches.filter(
         F.col(f"o.{col_name}").isNotNull() & F.col(f"c.{col_name}").isNotNull()
     ).count()
-    
+
     print(f"  Null-related mismatches: {null_related}")
     print(f"  Value-different mismatches: {value_different}")
-    
+
     # Show the input values that caused mismatches (helps debug the UDF)
-    # Join back to get the input columns the UDF depends on
     mismatches.select(
         pk_col,
         F.col(f"o.{col_name}").alias("original_output"),
@@ -603,44 +721,60 @@ for col_name in numeric_cols:
     o_neg = original_df.filter(F.col(col_name) < 0).count()
     c_neg = converted_df.filter(F.col(col_name) < 0).count()
     if o_neg != c_neg:
-        print(f"EDGE CASE: {col_name} — negative count changed: {o_neg} → {c_neg}")
+        print(f"EDGE CASE: {col_name} -- negative count changed: {o_neg} -> {c_neg}")
 
 # 13b: Empty strings vs nulls in all string columns
 for col_name in string_cols:
-    o_empty = original_df.filter((F.col(col_name).isNotNull()) & (F.trim(F.col(col_name)) == "")).count()
-    c_empty = converted_df.filter((F.col(col_name).isNotNull()) & (F.trim(F.col(col_name)) == "")).count()
+    o_empty = original_df.filter(
+        (F.col(col_name).isNotNull()) & (F.trim(F.col(col_name)) == "")
+    ).count()
+    c_empty = converted_df.filter(
+        (F.col(col_name).isNotNull()) & (F.trim(F.col(col_name)) == "")
+    ).count()
     o_null = original_df.filter(F.col(col_name).isNull()).count()
     c_null = converted_df.filter(F.col(col_name).isNull()).count()
     if o_empty != c_empty or o_null != c_null:
-        print(f"EDGE CASE: {col_name} — empty={o_empty}→{c_empty}, null={o_null}→{c_null}")
+        print(f"EDGE CASE: {col_name} -- empty={o_empty}->{c_empty}, null={o_null}->{c_null}")
 
 # 13c: Very large numbers (potential overflow)
 for col_name in numeric_cols:
-    o_large = original_df.filter(F.abs(F.col(col_name)) > 2147483647).count()  # Int.MaxValue
+    o_large = original_df.filter(F.abs(F.col(col_name)) > 2147483647).count()
     c_large = converted_df.filter(F.abs(F.col(col_name)) > 2147483647).count()
     if o_large != c_large:
-        print(f"EDGE CASE: {col_name} — large value count changed: {o_large} → {c_large} (possible overflow)")
+        print(
+            f"EDGE CASE: {col_name} -- large value count changed: "
+            f"{o_large} -> {c_large} (possible overflow)"
+        )
 
 # 13d: Special string values
 for col_name in string_cols:
-    for special_val, label in [("N/A", "N/A"), ("null", "literal 'null'"), ("None", "literal 'None'"), ("", "empty string"), ("NaN", "NaN string")]:
+    for special_val, label in [
+        ("N/A", "N/A"),
+        ("null", "literal 'null'"),
+        ("None", "literal 'None'"),
+        ("", "empty string"),
+        ("NaN", "NaN string"),
+    ]:
         o_count = original_df.filter(F.col(col_name) == special_val).count()
         c_count = converted_df.filter(F.col(col_name) == special_val).count()
         if o_count != c_count:
-            print(f"EDGE CASE: {col_name} — '{label}' count: {o_count} → {c_count}")
+            print(f"EDGE CASE: {col_name} -- '{label}' count: {o_count} -> {c_count}")
 
 # 13e: NaN in numeric columns (NaN != NaN in normal comparison)
 for col_name in numeric_cols:
     o_nan = original_df.filter(F.isnan(F.col(col_name))).count()
     c_nan = converted_df.filter(F.isnan(F.col(col_name))).count()
     if o_nan != c_nan:
-        print(f"EDGE CASE: {col_name} — NaN count: {o_nan} → {c_nan}")
+        print(f"EDGE CASE: {col_name} -- NaN count: {o_nan} -> {c_nan}")
 
 # 13f: Duplicate primary keys (should be 0, but verifies join correctness)
 o_dupes = original_df.groupBy(pk_col).count().filter(F.col("count") > 1).count()
 c_dupes = converted_df.groupBy(pk_col).count().filter(F.col("count") > 1).count()
 if o_dupes > 0 or c_dupes > 0:
-    print(f"WARNING: Duplicate PKs — original={o_dupes}, converted={c_dupes}. Row-level comparisons may be unreliable.")
+    print(
+        f"WARNING: Duplicate PKs -- original={o_dupes}, converted={c_dupes}. "
+        "Row-level comparisons may be unreliable."
+    )
 ```
 
 **Pass criteria:** All edge case counts match between original and converted.
@@ -652,17 +786,13 @@ Identify columns where differences may be due to non-deterministic behavior rath
 ```python
 # 14a: Check if mismatched rows correlate with non-deterministic operations
 # (dropDuplicates, first(), head, collect without orderBy)
-
-# For any column with mismatches from Check 6, check if the mismatched rows
-# involve duplicate-like data where row selection is arbitrary
 for col_name, cnt in mismatch_summary.items():
     if cnt > 0 and cnt < 10:  # Small number of mismatches suggests non-determinism
-        # Check if the mismatched PKs have duplicate values for key columns
         mismatched_pks = joined.filter(
             ~F.col(f"o.{col_name}").eqNullSafe(F.col(f"c.{col_name}"))
         ).select(pk_col).collect()
         pk_values = [r[0] for r in mismatched_pks]
-        
+
         print(f"NON-DETERMINISM CHECK: {col_name} has {cnt} mismatches")
         print(f"  Mismatched PKs: {pk_values[:10]}")
 
@@ -671,163 +801,35 @@ for col_name, cnt in mismatch_summary.items():
 for col_name in numeric_cols:
     if col_name in mismatch_summary and mismatch_summary[col_name] > 0:
         diffs = joined.filter(
-            F.col(f"o.{col_name}").isNotNull() &
-            F.col(f"c.{col_name}").isNotNull() &
-            (F.col(f"o.{col_name}") != F.col(f"c.{col_name}"))
+            F.col(f"o.{col_name}").isNotNull()
+            & F.col(f"c.{col_name}").isNotNull()
+            & (F.col(f"o.{col_name}") != F.col(f"c.{col_name}"))
         ).withColumn(
             "rel_diff",
-            F.when(F.col(f"o.{col_name}") != 0,
-                F.abs(F.col(f"o.{col_name}") - F.col(f"c.{col_name}")) / F.abs(F.col(f"o.{col_name}"))
+            F.when(
+                F.col(f"o.{col_name}") != 0,
+                F.abs(F.col(f"o.{col_name}") - F.col(f"c.{col_name}"))
+                / F.abs(F.col(f"o.{col_name}"))
             ).otherwise(F.abs(F.col(f"c.{col_name}")))
         )
-        
-        # If all relative differences are < 1e-10, it's likely floating-point noise
+
         max_rel_diff = diffs.agg(F.max("rel_diff")).collect()[0][0]
         if max_rel_diff and max_rel_diff < 1e-10:
-            print(f"NON-DETERMINISM: {col_name} — max relative diff is {max_rel_diff:.2e}, likely floating-point aggregation order")
+            print(
+                f"NON-DETERMINISM: {col_name} -- max relative diff is {max_rel_diff:.2e}, "
+                "likely floating-point aggregation order"
+            )
 ```
 
 **Pass criteria:** Non-deterministic differences are flagged as informational, not failures. True failures have large or consistent differences.
 
 ---
 
-## Output Report
-
-The validator should produce a comprehensive summary:
-
-```
-╔══════════════════════════════════════════════════════════════╗
-║              CONVERSION VALIDATION REPORT                    ║
-║  Table: main.scala_claims_demo.claims_silver                 ║
-║  Mode: Time Travel (version 3 vs version 5)                  ║
-╚══════════════════════════════════════════════════════════════╝
-
-STRUCTURAL CHECKS
-  1. Schema Comparison:           PASS (32 columns matched, 0 type mismatches)
-  2. Row Count:                   PASS (1000 = 1000, 0 orphans)
-
-STATISTICAL CHECKS
-  3. Null Counts:                 FAIL
-     - diagnosis_category: 50 → 47 (diff: -3)
-     - denial_code: 200 → 195 (diff: -5)
-  4. Aggregate Stats:             FAIL
-     - risk_score sum: 1234.56 → 1231.89 (diff: 2.67)
-  5. Distinct Values:             PASS (20 string columns matched)
-
-ROW-LEVEL CHECKS
-  6. Row-by-Row Comparison:       FAIL (8 mismatches across 3 columns)
-     - diagnosis_category: 3 mismatches
-     - risk_score: 3 mismatches
-     - denial_code: 5 mismatches
-  7. Date/Timestamp Deep:         PASS
-     - 7a: 3 date cols, 0 timestamp cols identified
-     - 7b: 0 value mismatches
-     - 7c: 0 timezone shifts
-     - 7d: 0 null/epoch confusion
-     - 7e: 0 boundary mismatches
-     - 7f: 0 type mismatches
-     - 7g: 3 string date formats preserved
-
-SEMANTIC EQUIVALENCE CHECKS
-  8. Null vs Empty String:        FAIL
-     - denial_code: 5 rows where null became "N/A"
-  9. Null vs Zero/Default:        PASS (0 null↔zero conversions)
- 10. Boolean/Flag Equivalence:    PASS (0 case/whitespace diffs)
- 11. Numeric Precision:           FAIL
-     - risk_score: 3 rows with rounding_difference (~0.01)
-     - Likely cause: BigDecimal HALF_UP vs Python round()
- 12. UDF Output Consistency:      FAIL
-     - categorizeDiagnosis: 3 mismatches (all null-related)
-     - cleanDenialCode: 5 mismatches (null→"N/A" pattern)
-     - calculateRiskScore: 3 mismatches (rounding)
-
-EDGE CASE CHECKS
- 13. Edge Case Patterns:          PASS
-     - Negative counts: matched
-     - Empty/null distribution: matched
-     - Large values: matched
-     - Special strings: matched
-     - NaN counts: matched
- 14. Non-Determinism:             INFO
-     - No non-deterministic patterns detected
-
-═══════════════════════════════════════════════════════════════
-OVERALL: FAIL — 5 checks failed
-
-ROOT CAUSE SUMMARY:
-  1. cleanDenialCode UDF: returns "N/A" instead of None for null input
-     → Fix: change `return "N/A"` to `return None` when input is null
-  2. calculateRiskScore UDF: rounding difference (HALF_UP vs banker's)
-     → Fix: use Decimal with ROUND_HALF_UP instead of round()
-  3. categorizeDiagnosis UDF: returns "Unknown" instead of None for empty input
-     → Fix: return None for null/empty input to match Scala behavior
-═══════════════════════════════════════════════════════════════
-```
-
-## Columns to Exclude from Comparison
-
-Always exclude these metadata columns — they will differ between runs:
-- `_ingestion_timestamp`
-- `_transform_timestamp`
-- `_source_file`
-- `_row_hash`
-
-## Common Failure Patterns and Root Causes
-
-### From Scala → PySpark Conversion
-
-| Check That Fails | Pattern | Root Cause | Fix |
-|-----------------|---------|------------|-----|
-| Check 3 (nulls) + Check 8 (null↔empty) | Null count decreased, empty string count increased | UDF returns `""` instead of `None` | Fix UDF: `return None` not `return ""` |
-| Check 3 (nulls) + Check 8 (null↔default) | Null count decreased, new default values appear | UDF uses `x if x else "default"` instead of `is not None` | Fix UDF: use `is not None` check |
-| Check 4 (aggregates) + Check 9 (null↔zero) | Sum changed, null count decreased | UDF returns `0` instead of `None` | Fix UDF: `return None` not `return 0` |
-| Check 4 (aggregates) + Check 11 (precision) | Sum slightly different, individual rows off by ~0.01 | BigDecimal HALF_UP vs Python round() | Use `Decimal` with `ROUND_HALF_UP` |
-| Check 5 (distinct) + Check 10 (case) | New distinct values that are case-variants | UDF or transform changed case handling | Check `.upper()` / `.lower()` calls |
-| Check 6 (row-by-row) on many columns | Widespread mismatches | Boolean operator precedence bug | Check all `&`/`|` have parenthesized operands |
-| Check 6 on single column, all rows | Every row in one column differs | Column renamed or swapped | Check `.alias()` conversion |
-| Check 2 (row count) differs | Missing or extra rows | Filter condition changed due to null comparison | Check `.filter()` with null-sensitive conditions |
-| Check 13 (edge: NaN) | NaN counts differ | Python `float('nan')` vs Spark NaN handling | Check UDF math that could produce NaN |
-
-### From DBR Upgrade (13.3 → 16.4)
-
-| Check That Fails | Pattern | Root Cause | Fix |
-|-----------------|---------|------------|-----|
-| Check 3 (nulls) increase | More nulls in converted | ANSI TRY_CAST returns null where old CAST returned a value | Verify TRY_CAST is correct behavior |
-| Check 4 (aggregates) change | Sum/avg changed | ANSI TRY_DIVIDE returns null where old divide returned null already... or division logic changed | Check all division fixes |
-| Check 6 widespread | Many columns affected | Deprecated config removal changed behavior | Re-add config or fix code |
-| Check 13 (negative counts) | Negative numbers disappeared | ANSI arithmetic exception caught differently | Check error handling around negative values |
-
-### From Combined Conversion + Upgrade
-
-| Check That Fails | How to Isolate | Method |
-|-----------------|----------------|--------|
-| Any check | Is it the language conversion or the runtime? | Compare PySpark 16.4 output against Scala 16.4 output (version N+1). If they match, it's the runtime. If they differ, it's the language conversion. |
-| Any check | Need cleaner test | Run PySpark on 13.3 cluster, compare against Scala 13.3 baseline. Passes = language conversion is clean. Fails = language conversion bug. |
-
-## Validation Notebook Structure
-
-Create a validation notebook with this structure:
-
-1. **Config cell:** Define mode, schemas/versions, table pairs, primary keys, UDF column mappings
-2. **Setup cell:** Load DataFrames, build joined DataFrame, classify columns
-3. **Structural checks:** Checks 1-2
-4. **Statistical checks:** Checks 3-5
-5. **Row-level checks:** Checks 6-7
-6. **Semantic equivalence checks:** Checks 8-12
-7. **Edge case checks:** Checks 13-14
-8. **Summary:** Print the full report with pass/fail per check
-9. **Root cause analysis:** For failures, correlate across checks to identify the UDF or transform that caused the issue
-10. **Detail output:** For failures, show sample mismatched rows with input context
-
-The notebook should be parameterized so it can be reused across different conversion runs.
-
----
-
-## Serverless-Specific Checks (F15-F18)
+## Serverless-Specific Checks (15-18)
 
 These checks apply only when the migration target is serverless compute. Run them in addition to Checks 1-14.
 
-### Check 15: Serverless Compute Verification (F15)
+### Check 15: Serverless Compute Verification
 
 Confirm the migrated job actually ran on serverless compute, not classic.
 
@@ -836,7 +838,10 @@ import requests
 
 run_id = dbutils.widgets.get("run_id")
 host = spark.conf.get("spark.databricks.workspaceUrl")
-token = dbutils.notebook.entry_point.getDbutils().notebook().getContext().apiToken().get()
+token = (
+    dbutils.notebook.entry_point.getDbutils()
+    .notebook().getContext().apiToken().get()
+)
 
 response = requests.get(
     f"https://{host}/api/2.1/jobs/runs/get",
@@ -853,37 +858,45 @@ for task in run_details.get("tasks", []):
     elif task.get("cluster_instance", {}).get("cluster_id"):
         print(f"FAIL: Task '{task_key}' ran on classic cluster, not serverless")
     else:
-        print(f"WARN: Task '{task_key}' — unable to determine compute type")
+        print(f"WARN: Task '{task_key}' -- unable to determine compute type")
 ```
 
 **Pass criteria:** Every task has an `environment_key` and no `cluster_id`.
 
-### Check 16: Config Compliance Check (F16)
+### Check 16: Config Compliance Check
 
 Verify no unsupported Spark configs were set during the run. Unsupported configs on serverless either silently fail or throw `CONFIG_NOT_AVAILABLE`.
 
 ```python
-# Check the notebook code for any spark.conf.set calls that are unsupported
 unsupported_prefixes = [
-    "spark.executor.", "spark.driver.extra", "spark.dynamicAllocation.",
-    "spark.shuffle.service.", "spark.hadoop.", "spark.serializer",
-    "spark.sql.warehouse.dir", "spark.databricks.cluster.",
-    "spark.databricks.passthrough.", "fs.azure.", "fs.s3a.",
+    "spark.executor.",
+    "spark.driver.extra",
+    "spark.dynamicAllocation.",
+    "spark.shuffle.service.",
+    "spark.hadoop.",
+    "spark.serializer",
+    "spark.sql.warehouse.dir",
+    "spark.databricks.cluster.",
+    "spark.databricks.passthrough.",
+    "fs.azure.",
+    "fs.s3a.",
     "spark.databricks.delta.retentionDurationCheck.enabled",
     "spark.databricks.delta.schema.autoMerge.enabled",
-    "spark.sql.broadcastTimeout", "spark.sql.caseSensitive",
+    "spark.sql.broadcastTimeout",
+    "spark.sql.caseSensitive",
     "spark.sql.streaming.stateStore.stateSchemaCheck",
 ]
 
-# If you have access to the notebook source, scan for these patterns
 # If checking post-run, verify the job completed without CONFIG_NOT_AVAILABLE errors
 print("Check run logs for [CONFIG_NOT_AVAILABLE] errors")
-print(f"Unsupported config prefixes to scan: {len(unsupported_prefixes)}")
+print(f"Unsupported config prefixes to scan for: {len(unsupported_prefixes)}")
+for prefix in unsupported_prefixes:
+    print(f"  - {prefix}")
 ```
 
 **Pass criteria:** No `CONFIG_NOT_AVAILABLE` errors in the run logs. No unsupported configs set in notebook code.
 
-### Check 17: Environment Key Verification (F17)
+### Check 17: Environment Key Verification
 
 Confirm every task in the job JSON has an `environment_key` and the environments block is properly configured.
 
@@ -904,7 +917,9 @@ for task in job_config.get("settings", {}).get("tasks", []):
 if tasks_without_env_key:
     print(f"FAIL: Tasks missing environment_key: {tasks_without_env_key}")
 else:
-    print(f"PASS: All {len(job_config['settings']['tasks'])} tasks have environment_key")
+    print(
+        f"PASS: All {len(job_config['settings']['tasks'])} tasks have environment_key"
+    )
 
 # Check environments block
 environments = job_config.get("settings", {}).get("environments", [])
@@ -914,8 +929,10 @@ else:
     for env in environments:
         client = env.get("spec", {}).get("client", "unknown")
         deps = env.get("spec", {}).get("dependencies", [])
-        print(f"PASS: Environment '{env.get('environment_key')}' — client={client}, dependencies={len(deps)}")
-        # Verify dependencies path resolves
+        print(
+            f"PASS: Environment '{env.get('environment_key')}' -- "
+            f"client={client}, dependencies={len(deps)}"
+        )
         for dep in deps:
             if "%env_name%" in dep or "%env%" in dep:
                 print(f"  FAIL: Unresolved placeholder in dependency: {dep}")
@@ -925,7 +942,7 @@ else:
 
 **Pass criteria:** All tasks have `environment_key`. Environments block exists with client "4". No unresolved `%env_name%` placeholders.
 
-### Check 18: Performance Comparison (F18)
+### Check 18: Performance Comparison
 
 Compare classic compute vs serverless execution metrics to detect regressions.
 
@@ -933,12 +950,11 @@ Compare classic compute vs serverless execution metrics to detect regressions.
 classic_run_id = dbutils.widgets.get("classic_run_id")
 serverless_run_id = dbutils.widgets.get("serverless_run_id")
 
-# Get task-level durations from both runs
-def get_task_durations(run_id):
+def get_task_durations(rid):
     resp = requests.get(
         f"https://{host}/api/2.1/jobs/runs/get",
         headers={"Authorization": f"Bearer {token}"},
-        params={"run_id": run_id}
+        params={"run_id": rid}
     )
     run = resp.json()
     durations = {}
@@ -954,7 +970,10 @@ classic = get_task_durations(classic_run_id)
 serverless = get_task_durations(serverless_run_id)
 
 print("PERFORMANCE COMPARISON")
-print(f"{'Task':<40} {'Classic (min)':<15} {'Serverless (min)':<18} {'Ratio':<8} {'Status'}")
+print(
+    f"{'Task':<40} {'Classic (min)':<15} {'Serverless (min)':<18} "
+    f"{'Ratio':<8} {'Status'}"
+)
 print("=" * 95)
 
 regressions = 0
@@ -971,13 +990,148 @@ print(f"\nRegressions (>2x): {regressions}")
 if regressions == 0:
     print("PASS: No significant performance regressions")
 else:
-    print(f"WARN: {regressions} task(s) with >2x runtime increase — investigate before production cutover")
+    print(
+        f"WARN: {regressions} task(s) with >2x runtime increase -- "
+        "investigate before production cutover"
+    )
 ```
 
 **Pass criteria:** No task exceeds 2x the classic compute runtime. Minor increases (< 2x) are informational.
 
-## Cross-References
+---
 
-- Serverless known issues: `resources/13-serverless-known-issues.md`
-- Testing and validation framework: `resources/08-testing-validation-framework.md`
-- Performance optimization patterns: `resources/09-performance-optimization-patterns.md`
+## Report Output Template
+
+The validator should produce a comprehensive summary in this format:
+
+```
+========================================================================
+              CONVERSION VALIDATION REPORT
+  Table: catalog.schema.table_name
+  Mode: Cross-Catalog (original_schema vs converted_schema)
+========================================================================
+
+STRUCTURAL CHECKS
+  1. Schema Comparison:           PASS (N columns matched, 0 type mismatches)
+  2. Row Count:                   PASS (N = N, 0 orphans)
+
+STATISTICAL CHECKS
+  3. Null Counts:                 PASS/FAIL
+     - column_name: X -> Y (diff: Z)
+  4. Aggregate Stats:             PASS/FAIL
+     - column_name stat: X -> Y (diff: Z)
+  5. Distinct Values:             PASS (N string columns matched)
+
+ROW-LEVEL CHECKS
+  6. Row-by-Row Comparison:       PASS/FAIL (N mismatches across M columns)
+     - column_name: N mismatches
+  7. Date/Timestamp Deep:         PASS/FAIL
+     - 7a: N date cols, M timestamp cols identified
+     - 7b: N value mismatches
+     - 7c: N timezone shifts
+     - 7d: N null/epoch confusion
+     - 7e: N boundary mismatches
+     - 7f: N type mismatches
+     - 7g: N string date formats checked
+
+SEMANTIC EQUIVALENCE CHECKS
+  8. Null vs Empty String:        PASS/FAIL
+     - column_name: N rows where null became "value"
+  9. Null vs Zero/Default:        PASS/FAIL (N null-to-zero conversions)
+ 10. Boolean/Flag Equivalence:    PASS/FAIL (N case/whitespace diffs)
+ 11. Numeric Precision:           PASS/FAIL
+     - column_name: N rows with rounding_difference (~0.01)
+     - Likely cause: BigDecimal HALF_UP vs Python round()
+ 12. UDF Output Consistency:      PASS/FAIL
+     - udf_name: N mismatches (pattern description)
+
+EDGE CASE CHECKS
+ 13. Edge Case Patterns:          PASS/FAIL
+     - Negative counts: matched/differed
+     - Empty/null distribution: matched/differed
+     - Large values: matched/differed
+     - Special strings: matched/differed
+     - NaN counts: matched/differed
+ 14. Non-Determinism:             INFO
+     - Summary of any non-deterministic patterns detected
+
+SERVERLESS CHECKS (if applicable)
+ 15. Compute Verification:        PASS/FAIL
+ 16. Config Compliance:           PASS/FAIL
+ 17. Environment Key:             PASS/FAIL
+ 18. Performance Comparison:      PASS/WARN
+
+========================================================================
+OVERALL: PASS/FAIL -- N checks failed
+
+ROOT CAUSE SUMMARY:
+  1. Description of root cause and fix
+  2. Description of root cause and fix
+========================================================================
+```
+
+---
+
+## Columns to Exclude from Comparison
+
+Always exclude these metadata columns -- they will differ between runs:
+- `_ingestion_timestamp`
+- `_transform_timestamp`
+- `_source_file`
+- `_row_hash`
+
+---
+
+## Failure Diagnosis Patterns
+
+Use these patterns to correlate failures across checks and identify the root cause.
+
+### Scala to PySpark Conversion Failures
+
+| Checks That Fail | Pattern | Root Cause | Fix |
+|---|---|---|---|
+| 3 (nulls) + 8 (null/empty) | Null count decreased, empty string count increased | UDF returns `""` instead of `None` | Fix UDF: `return None` not `return ""` |
+| 3 (nulls) + 8 (null/default) | Null count decreased, new default values appear | UDF uses `x if x else "default"` instead of `is not None` | Fix UDF: use `is not None` check |
+| 4 (aggregates) + 9 (null/zero) | Sum changed, null count decreased | UDF returns `0` instead of `None` | Fix UDF: `return None` not `return 0` |
+| 4 (aggregates) + 11 (precision) | Sum slightly different, individual rows off by ~0.01 | BigDecimal HALF_UP vs Python round() | Use `Decimal` with `ROUND_HALF_UP` |
+| 5 (distinct) + 10 (case) | New distinct values that are case-variants | UDF or transform changed case handling | Check `.upper()` / `.lower()` calls |
+| 6 (row-by-row) on many columns | Widespread mismatches | Boolean operator precedence bug | Check all `&`/`|` have parenthesized operands |
+| 6 on single column, all rows | Every row in one column differs | Column renamed or swapped | Check `.alias()` conversion |
+| 2 (row count) differs | Missing or extra rows | Filter condition changed due to null comparison | Check `.filter()` with null-sensitive conditions |
+| 13 (edge: NaN) | NaN counts differ | Python `float('nan')` vs Spark NaN handling | Check UDF math that could produce NaN |
+
+### DBR Upgrade Failures (13.3 to 16.4)
+
+| Checks That Fail | Pattern | Root Cause | Fix |
+|---|---|---|---|
+| 3 (nulls) increase | More nulls in converted | ANSI TRY_CAST returns null where old CAST returned a value | Verify TRY_CAST is correct behavior |
+| 4 (aggregates) change | Sum/avg changed | ANSI TRY_DIVIDE returns null where old divide returned null or division logic changed | Check all division fixes |
+| 6 widespread | Many columns affected | Deprecated config removal changed behavior | Re-add config or fix code |
+| 13 (negative counts) | Negative numbers disappeared | ANSI arithmetic exception caught differently | Check error handling around negative values |
+
+### Combined Conversion + Upgrade
+
+| Checks That Fail | How to Isolate | Method |
+|---|---|---|
+| Any check | Is it the language conversion or the runtime? | Compare PySpark on new DBR output against Scala on new DBR output. If they match, the runtime is the cause. If they differ, the language conversion is the cause. |
+| Any check | Need cleaner test | Run PySpark on old DBR cluster, compare against Scala old DBR baseline. Passes = language conversion is clean. Fails = language conversion bug. |
+
+---
+
+## Validation Notebook Structure
+
+Create a validation notebook with this structure:
+
+1. **Config cell:** Define mode, schemas/versions, table pairs, primary keys, UDF column mappings
+2. **Setup cell:** Load DataFrames, build joined DataFrame, classify columns (use Setup Code above)
+3. **Structural checks:** Checks 1-2
+4. **Statistical checks:** Checks 3-5
+5. **Row-level checks:** Checks 6-7
+6. **Semantic equivalence checks:** Checks 8-12
+7. **Edge case checks:** Checks 13-14
+8. **Serverless checks (if applicable):** Checks 15-18
+9. **Summary:** Print the full report with pass/fail per check using the template above
+10. **Root cause analysis:** For failures, correlate across checks using the diagnosis patterns to identify the UDF or transform that caused the issue
+11. **Detail output:** For failures, show sample mismatched rows with input context
+
+The notebook should be parameterized so it can be reused across different conversion runs.

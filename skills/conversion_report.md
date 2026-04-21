@@ -1,10 +1,10 @@
 # Conversion Report
 
-This skill teaches you how to generate a detailed report comparing an original pipeline against a converted pipeline, documenting every code change and explaining why each change was made.
+This skill provides the complete framework for generating a detailed report comparing an original pipeline against a converted pipeline. It documents every code change, explains why each change was made, and assesses behavioral risk. All templates and format specifications are self-contained.
 
 ## Purpose
 
-When converting pipelines (Scala → PySpark, DBR 13.3 → 16.4, or both), stakeholders need to understand:
+When converting pipelines (Scala to PySpark, DBR 13.3 to 16.4, classic to serverless, or any combination), stakeholders need to understand:
 - What exactly changed in the code
 - Why each change was made
 - Whether the change affects behavior or is purely syntactic
@@ -12,42 +12,40 @@ When converting pipelines (Scala → PySpark, DBR 13.3 → 16.4, or both), stake
 
 This report serves as an audit trail and review document before the converted pipeline goes to production.
 
+---
+
 ## Report Structure
 
-The report should be a notebook (or markdown document) with the following sections:
+The report should be a notebook (or markdown document) with the sections below.
 
 ### 1. Executive Summary
 
-A high-level overview:
-- Source pipeline: language, DBR version, number of notebooks
-- Target pipeline: language, DBR version, number of notebooks
-- Total changes made
-- Breakdown by change category (syntax, API, runtime, ANSI compliance, behavioral)
-- Risk assessment: how many changes are purely syntactic vs. potentially behavior-altering
+A high-level overview of the entire conversion.
 
-Example:
 ```
 Pipeline Conversion Report
 ==========================
-Source: Scala on DBR 13.3 LTS (5 notebooks)
-Target: PySpark on DBR 16.4 LTS (5 notebooks)
+Source: [language] on DBR [version] ([N] notebooks)
+Target: [language] on DBR [version] ([N] notebooks)
+Compute: [classic/serverless]
 
-Total changes: 147
-  - Syntax/language translation:  98 (67%) — no behavioral risk
-  - API differences:              22 (15%) — low risk, equivalent APIs
-  - ANSI compliance fixes:        12 (8%)  — medium risk, changed error handling
-  - Runtime config changes:        8 (5%)  — low risk, config removals/updates
-  - UDF rewrites:                  7 (5%)  — high risk, logic translation
+Total changes: [N]
+  - Syntax/language translation:  [N] ([%]) -- no behavioral risk
+  - API differences:              [N] ([%]) -- low risk, equivalent APIs
+  - ANSI compliance fixes:        [N] ([%]) -- medium risk, changed error handling
+  - Runtime config changes:       [N] ([%]) -- low risk, config removals/updates
+  - UDF rewrites:                 [N] ([%]) -- high risk, logic translation
+  - Serverless adaptations:       [N] ([%]) -- low-medium risk, compute changes
 ```
 
 ### 2. Notebook-by-Notebook Diff
 
-For each notebook, list every change grouped by category. Each change should include:
+For each notebook, list every change grouped by category. Each change entry must include:
 
 | Field | Description |
 |-------|-------------|
 | **Location** | Notebook name and cell/line number |
-| **Category** | Syntax, API, ANSI, Runtime, UDF, or Behavioral |
+| **Category** | Syntax, API, ANSI, Runtime, UDF, Serverless, or Behavioral |
 | **Original Code** | The original code snippet |
 | **Converted Code** | The converted code snippet |
 | **Reason** | Why this change was made |
@@ -58,32 +56,32 @@ For each notebook, list every change grouped by category. Each change should inc
 
 **Syntax (Risk: None)**
 Changes that are purely language translation with zero behavioral impact:
-- `$"col"` → `F.col("col")`
-- `val x = ...` → `x = ...`
-- `s"..."` → `f"..."`
-- `println` → `print`
-- `// comment` → `# comment`
-- `// COMMAND` → `# COMMAND`
-- Scala imports → PySpark imports
-- `.as("alias")` → `.alias("alias")`
+- `$"col"` to `F.col("col")`
+- `val x = ...` to `x = ...`
+- `s"..."` to `f"..."`
+- `println` to `print`
+- `// comment` to `# comment`
+- `// COMMAND` to `# COMMAND`
+- Scala imports to PySpark imports
+- `.as("alias")` to `.alias("alias")`
 
 **API (Risk: Low)**
 Changes where the Scala and PySpark APIs are functionally equivalent but have different method names or signatures:
-- `.as[CaseClass]` removed (typed Dataset → untyped DataFrame)
-- `.transform(func)` → `func(df)` (direct function call)
-- `.take(n).toSeq` → `.take(n)` (already returns list)
-- `.collect().toMap` → dict comprehension
-- `Seq(...)` → `[...]`
+- `.as[CaseClass]` removed (typed Dataset to untyped DataFrame)
+- `.transform(func)` to `func(df)` (direct function call)
+- `.take(n).toSeq` to `.take(n)` (already returns list)
+- `.collect().toMap` to dict comprehension
+- `Seq(...)` to `[...]`
 
 **ANSI Compliance (Risk: Medium)**
-Changes made to handle DBR 16.4's ANSI mode default:
-- `CAST()` → `TRY_CAST()`
-- Division → `TRY_DIVIDE()` or null guard
-- Array access → bounds check
-- Map access → key existence check
-- Integer arithmetic → type widening
+Changes made to handle ANSI mode defaults on newer DBR versions:
+- `CAST()` to `TRY_CAST()`
+- Division to `TRY_DIVIDE()` or null guard
+- Array access to bounds check
+- Map access to key existence check
+- Integer arithmetic to type widening
 
-**These changes alter error handling behavior.** The original code would silently return null; the new code explicitly handles the edge case. The *output* should be identical for valid data, but invalid data may be handled differently.
+These changes alter error handling behavior. The original code would silently return null or a coerced value; the new code explicitly handles the edge case. The output should be identical for valid data, but invalid data may be handled differently.
 
 **Runtime (Risk: Low)**
 Changes required by DBR version differences:
@@ -93,12 +91,20 @@ Changes required by DBR version differences:
 
 **UDF (Risk: High)**
 UDF conversions require the most scrutiny because they translate business logic between languages:
-- Scala typed UDFs → Python UDFs with explicit return types
-- Pattern matching inside UDFs → if/elif or dict lookups
-- `Option`/`Try` handling → None checks / try-except
+- Scala typed UDFs to Python UDFs with explicit return types
+- Pattern matching inside UDFs to if/elif or dict lookups
+- `Option`/`Try` handling to None checks / try-except
 - Null handling differences (Scala `null` vs Python `None`)
 
-**Document each UDF conversion individually** with before/after code and an explanation of how null values, edge cases, and error conditions are handled.
+Document each UDF conversion individually with before/after code and an explanation of how null values, edge cases, and error conditions are handled.
+
+**Serverless (Risk: Low-Medium)**
+Changes required by the move from classic to serverless compute:
+- Job JSON transformation (cluster config to environment_key)
+- `os.environ` to `dbutils.widgets.get()`
+- Spark config removals (unsupported on serverless)
+- Library replacements (JAR to PyPI/wheel)
+- Unsupported operation removals (REFRESH TABLE, .persist(), etc.)
 
 **Behavioral (Risk: High)**
 Any change that could produce different output:
@@ -109,7 +115,7 @@ Any change that could produce different output:
 
 ### 3. ANSI Compliance Audit
 
-A dedicated section listing every ANSI-sensitive pattern found in the original code and how it was addressed:
+A dedicated section listing every ANSI-sensitive pattern found in the original code and how it was addressed.
 
 ```
 ANSI Compliance Audit
@@ -117,101 +123,209 @@ ANSI Compliance Audit
 
 | # | Notebook | Line | Pattern | Original | Fix Applied | Risk |
 |---|----------|------|---------|----------|-------------|------|
-| 1 | 02_silver | 45 | Division | total / count | TRY_DIVIDE(total, count) | Medium — returns null instead of error for zero denominators |
-| 2 | 02_silver | 72 | Cast | CAST(str AS INT) | TRY_CAST(str AS INT) | Medium — returns null instead of error for non-numeric strings |
-| 3 | 03_gold | 23 | Division | paid / billed * 100 | Added CASE WHEN billed = 0 | Medium — explicit null for zero billed |
+| 1 | notebook_name | 45 | Division | total / count | TRY_DIVIDE(total, count) | Medium -- returns null instead of error for zero denominators |
+| 2 | notebook_name | 72 | Cast | CAST(str AS INT) | TRY_CAST(str AS INT) | Medium -- returns null instead of error for non-numeric strings |
+| 3 | notebook_name | 23 | Division | paid / billed * 100 | Added CASE WHEN billed = 0 | Medium -- explicit null for zero denominator |
+| 4 | notebook_name | 91 | Array access | arr[idx] | TRY(arr[idx]) | Medium -- returns null instead of ArrayIndexOutOfBounds |
+| 5 | notebook_name | 15 | Arithmetic | int_a * int_b | CAST(int_a AS BIGINT) * int_b | Low -- prevents ARITHMETIC_OVERFLOW |
 ```
 
 ### 4. UDF Conversion Detail
 
-A dedicated section for every UDF with side-by-side comparison:
+A dedicated section for every UDF with side-by-side comparison. Use this template for each:
 
 ```
-UDF: categorizeDiagnosis
-========================
-Purpose: Maps ICD-10 diagnosis codes to categories by first letter
+UDF: [function_name]
+====================
+Purpose: [one-line description of what the UDF does]
 
-Original (Scala):
-  def categorizeDiagnosis(code: String): String = {
-    Option(code).filter(_.nonEmpty) match {
-      case Some(c) => c.head.toString match {
-        case "E" => "Endocrine/Metabolic"
-        ...
-      }
-      case None => "Unknown"
-    }
-  }
+Original ([source language]):
+  [original code block]
 
-Converted (PySpark):
-  def categorize_diagnosis(code):
-      if code and len(code.strip()) > 0:
-          first_char = code[0]
-          mapping = {"E": "Endocrine/Metabolic", ...}
-          return mapping.get(first_char, "Other")
-      return "Unknown"
+Converted ([target language]):
+  [converted code block]
 
 Changes:
-  - Pattern matching → dictionary lookup
-  - Option/Some/None → if/else None check
-  - .nonEmpty → len(str.strip()) > 0
-  
+  - [change 1]
+  - [change 2]
+  - [change 3]
+
 Null handling:
-  - Scala: Option(null) → None case → "Unknown"
-  - Python: None check → return "Unknown"
-  - Empty string: Both return "Unknown"
-  
-Risk: Low — logic is equivalent, null handling verified
+  - Original: [how nulls are handled]
+  - Converted: [how nulls are handled]
+  - Empty string: [how empty strings are handled]
+
+Edge cases:
+  - [edge case 1 and how it differs]
+  - [edge case 2 and how it differs]
+
+Risk: [None/Low/Medium/High] -- [justification]
+Validation: Verify with conversion_validator Check 12 (UDF Output Consistency)
 ```
 
 ### 5. Date/Timestamp Conversion Detail
 
-A dedicated section for every date operation with analysis of potential timezone, format, and precision differences:
+A dedicated section for every date operation with analysis of potential timezone, format, and precision differences. Use this template for each:
 
 ```
-Date Operation: claim_date parsing
-===================================
-Original (Scala):
-  UDF using java.text.SimpleDateFormat("MM/dd/yyyy")
-  Returns Option[java.sql.Date], .orNull for nulls
+Date Operation: [description]
+=============================
+Original ([source language]):
+  [original code -- e.g., UDF using SimpleDateFormat or strptime]
 
-Converted (PySpark):
-  UDF using datetime.strptime(date_str, "%m/%d/%Y").date()
-  Returns None for invalid dates
+Converted ([target language]):
+  [converted code]
 
 Differences:
-  - Scala SimpleDateFormat uses JVM default timezone
-  - Python datetime.strptime creates naive datetime (no timezone)
-  - Both return null/None for unparseable dates like "INVALID_DATE"
-  
+  - [timezone handling difference]
+  - [format parsing difference]
+  - [null/error handling difference]
+
 Edge cases:
-  - "02/29/2023" (invalid leap year): Scala may roll to 03/01, Python raises ValueError → None
-  - "13/01/2024" (invalid month): Both should fail and return null/None
-  
-Risk: Medium — leap year and format edge cases may differ
-Mitigation: Verify with conversion_validator Check 7 date boundary tests
+  - Invalid leap year dates (e.g., "02/29/2023"): [original behavior] vs [converted behavior]
+  - Invalid months (e.g., "13/01/2024"): [original behavior] vs [converted behavior]
+  - Epoch zero dates: [original behavior] vs [converted behavior]
+
+Risk: [None/Low/Medium/High] -- [justification]
+Validation: Verify with conversion_validator Check 7 (Date/Timestamp Deep Validation)
 ```
 
-### 6. Risk Summary
+### 6. Risk Summary Table
 
-A final table ranking all changes by risk:
+A final table ranking all changes by risk level.
 
 ```
-High Risk Changes (require manual review):
-  1. categorizeDiagnosis UDF — pattern matching → dict lookup
-  2. calculateRiskScore UDF — multi-param with match/case
-  3. Date parsing UDF — SimpleDateFormat vs strptime
-  4. MERGE INTO — verify identical merge behavior
+High Risk Changes (require manual review and validator confirmation):
+  1. [UDF name] -- [brief description of conversion]
+  2. [UDF name] -- [brief description of conversion]
+  3. [Date operation] -- [brief description of change]
+  4. [MERGE/complex SQL] -- [brief description of change]
 
-Medium Risk Changes (verify with validator):
-  5. TRY_CAST replacements (12 occurrences)
-  6. TRY_DIVIDE replacements (4 occurrences)
-  7. Null handling in cleanDenialCode UDF
+Medium Risk Changes (verify with conversion_validator):
+  5. TRY_CAST replacements ([N] occurrences)
+  6. TRY_DIVIDE replacements ([N] occurrences)
+  7. [UDF name] null handling change
 
-Low Risk / No Risk Changes (98 syntax + 22 API = 120 total):
+Low Risk / No Risk Changes ([N] syntax + [N] API = [N] total):
   - Language syntax translations
   - Import changes
   - API equivalents
+  - Config removals (transparent on serverless)
 ```
+
+### 7. Serverless-Specific Change Section
+
+When the migration includes a move to serverless compute, add this section.
+
+#### 7a. Job JSON Transformation
+
+Document the before/after job JSON changes:
+- `job_clusters` section removed
+- `job_cluster_key` removed from each task
+- `environment_key` added to each task
+- `environments` block added with client version and dependencies path
+- `parameters` block added with environment variable substitution
+- `queue` and `performance_optimized` settings added
+
+```
+Job JSON Changes
+================
+Before:
+  - job_clusters: [N] cluster definitions
+  - Each task: job_cluster_key = "cluster_name"
+
+After:
+  - job_clusters: REMOVED
+  - Each task: environment_key = "env_name"
+  - environments block: client="4", dependencies=["requirements.txt path"]
+  - parameters: [list of parameters with %env_name% substitution]
+```
+
+#### 7b. Environment Variable Migration
+
+For each `os.environ.get()` or `os.environ[]` found in notebook code:
+
+```
+| Original | Converted | Job Parameter |
+|---|---|---|
+| os.environ.get("VAR_NAME") | dbutils.widgets.get("VAR_NAME") | VAR_NAME in parameters block |
+```
+
+#### 7c. Spark Config Removals
+
+For each Spark config removed or changed:
+
+```
+| Config | Original Value | Action | Reason | Behavioral Impact |
+|---|---|---|---|---|
+| spark.config.name | value | Removed | Unsupported on serverless | None -- default behavior matches |
+```
+
+#### 7d. Unsupported Operation Removals
+
+For each unsupported operation removed:
+
+```
+| Original Code | Replacement | Reason | Behavioral Impact |
+|---|---|---|---|
+| REFRESH TABLE schema.table | Removed | Not needed with Unity Catalog | None |
+| df.persist() | Removed | Not supported on serverless | Possible perf change, no data change |
+| MSCK REPAIR TABLE | Removed | Legacy Hive operation | None with Delta tables |
+```
+
+### 8. Library Replacement Section
+
+Document every library that was replaced during migration.
+
+```
+Library Replacement: [library name]
+====================================
+Original: [original usage code]
+Replaced with: [replacement approach]
+
+Code change:
+  - Cell [N]: [description of change]
+  - Cell [N]: [description of change]
+
+Reason: [why the change was needed -- e.g., JAR not supported on serverless]
+Risk: [None/Low/Medium/High] -- [justification and testing notes]
+```
+
+For each replacement, include:
+- Original library and usage pattern
+- Replacement approach with code
+- Why the change was needed
+- Risk level and testing notes
+
+### 9. Repo-Side Change Manifest
+
+Document all changes that were made in the source control repository (not in Databricks directly):
+
+```
+REPO-SIDE CHANGES
+=================
+Repository: [repo name]
+Branch: [branch name]
+
+Files Changed:
+  1. [file path]
+     - [description of change]
+     - [description of change]
+
+  2. [file path]
+     - [description of change]
+
+Variable Group / Secret Changes:
+  - [description or "No changes needed"]
+
+Deployment Verification:
+  - [ ] Deployed to UAT via pipeline
+  - [ ] Job ID preserved (not recreated)
+  - [ ] Volume path resolves correctly
+  - [ ] Requirements.txt picked up by serverless
+```
+
+---
 
 ## How to Generate the Report
 
@@ -230,119 +344,22 @@ If you are the one performing the conversion (using the `scala_to_pyspark` and `
 
 Generate the report as a Databricks notebook with markdown cells for readability. It should be committed alongside the converted pipeline so reviewers can read it before approving the migration.
 
-## 7. Serverless-Specific Change Section (F7)
-
-When the migration includes a move to serverless compute, add this section to the report:
-
-### 7a. Job JSON Transformation
-
-Document the before/after job JSON changes:
-- `job_clusters` section removed
-- `job_cluster_key` removed from each task
-- `environment_key` added to each task
-- `environments` block added with client version and dependencies path
-- `parameters` block added (PATH_LANDING, PATH_DATALAKE) with `%env_name%` substitution
-- `queue` and `performance_optimized` settings added
-
-Reference: `resources/16-cicd-change-guide.md`
-
-### 7b. Environment Variable Migration
-
-For each `os.environ.get()` or `os.environ[]` found in notebook code:
-- Original code
-- Converted code using `dbutils.widgets.get()`
-- Which job parameter supplies the value
-
-### 7c. Spark Config Removals
-
-For each Spark config removed or changed:
-- Config name and original value
-- Why it was removed (unsupported on serverless, default on serverless, etc.)
-- Whether the removal changes behavior or is transparent
-
-Reference: `resources/05-spark-config-classic-to-serverless.md`
-
-### 7d. Unsupported Operation Removals
-
-For each unsupported operation removed:
-- Original code (REFRESH TABLE, MSCK REPAIR, .persist(), etc.)
-- What replaced it (removed, rewritten, or moved to SQL Warehouse)
-- Behavioral impact
-
-## 8. Library Replacement Section (F8)
-
-Document every library that was replaced during migration:
-
-```
-Library Replacement: com.crealytics.spark.excel
-================================================
-Original: df.write.format("com.crealytics.spark.excel").save(path)
-Replaced with: pandas + openpyxl via /local_disk0/tmp → Volume → abfss://
-
-Code change:
-  - Cell 15: Replaced spark.excel write with pandas to_excel()
-  - Cell 16: Added dbutils.fs.cp from volume to abfss://
-
-Reason: JAR libraries not supported on serverless compute
-Risk: LOW — output format identical, tested with sample data
-```
-
-For each replacement, include:
-- Original library and usage
-- Replacement approach with code
-- Why the change was needed
-- Risk level and testing notes
-
-Reference: `resources/06-package-dependency-analysis.md`
-
-## 9. Repo-Side Change Manifest (F9)
-
-Document all changes that were made in the Azure DevOps repository (not in Databricks):
-
-```
-REPO-SIDE CHANGES
-=================
-Repository: [Azure DevOps repo name]
-Branch: migration/batch_X/<job_name>
-
-Files Changed:
-  1. deployment/config/jobs/<job_name>.json
-     - Removed job_clusters section
-     - Added environments block with serverless config
-     - Added parameters block with PATH_LANDING, PATH_DATALAKE
-     
-  2. deployment/scripts/deploy_report_workflow_jobs.ps1
-     - Added %env_name% replacement (line 109)
-
-Variable Group Changes:
-  - No changes needed (env_name already exists)
-
-Deployment Verification:
-  - [ ] Deployed to UAT via pipeline
-  - [ ] Job ID preserved (not recreated)
-  - [ ] Volume path resolves correctly
-  - [ ] Requirements.txt picked up by serverless
-```
-
-Reference: `resources/16-cicd-change-guide.md`
+---
 
 ## Report Checklist
 
-Before finalizing the report, verify:
-- [ ] Every notebook in the pipeline is covered
-- [ ] Every UDF has a dedicated detail section
-- [ ] Every ANSI fix is listed in the compliance audit
-- [ ] Every date/timestamp operation is analyzed
-- [ ] Risk levels are assigned to all changes
-- [ ] The executive summary totals match the detailed change count
+Before finalizing the report, verify every item:
+
+- [ ] Every notebook in the pipeline is covered in Section 2
+- [ ] Every UDF has a dedicated detail section (Section 4)
+- [ ] Every ANSI fix is listed in the compliance audit (Section 3)
+- [ ] Every date/timestamp operation is analyzed (Section 5)
+- [ ] Risk levels are assigned to all changes (Section 6)
+- [ ] The executive summary totals match the detailed change count (Section 1 vs Section 2)
 - [ ] High-risk changes have mitigation steps or validation references
-- [ ] (If serverless) Serverless-specific section included (F7)
-- [ ] (If serverless) Library replacements documented (F8)
-- [ ] (If serverless) Repo-side change manifest included (F9)
-
-## Cross-References
-
-- CI/CD change guide: `resources/16-cicd-change-guide.md`
-- Spark config migration: `resources/05-spark-config-classic-to-serverless.md`
-- Package dependency analysis: `resources/06-package-dependency-analysis.md`
-- Serverless known issues: `resources/13-serverless-known-issues.md`
+- [ ] (If serverless) Job JSON transformation documented (Section 7a)
+- [ ] (If serverless) Environment variable migration documented (Section 7b)
+- [ ] (If serverless) Spark config removals documented (Section 7c)
+- [ ] (If serverless) Unsupported operations documented (Section 7d)
+- [ ] (If serverless) Library replacements documented (Section 8)
+- [ ] (If serverless) Repo-side change manifest included (Section 9)
