@@ -1,78 +1,179 @@
 I have an existing Scala pipeline running on DBR 13.3 LTS that I need to upgrade to DBR 16.4 LTS while keeping it in Scala.
 
-## Step 1: Record Baseline
+## Mode Selection
 
-Before making any changes, record the current Delta table versions for all tables in the pipeline. I need these version numbers to compare against later using time travel.
+This prompt supports two modes. Choose one:
 
-For each table in the pipeline schema, run:
+### Mode A: Full Assessment + Migration
+Run the complete assessment first, present findings for review, then apply approved changes.
+
+### Mode B: Apply from Existing Report
+Skip the assessment. I will provide a list of changes to apply from a previously generated assessment report.
+
+If I specify a job ID without a mode, default to Mode A.
+
+## Mode A: Full Assessment + Migration
+
+### Step 1: Assess the Pipeline
+
+Run the assessment from resource 19 (comprehensive-job-assessment.md) against the job. For each notebook in the pipeline:
+- Scan for all ANSI compliance issues (Checks 10-22)
+- Scan for deprecated/removed configs (Check 28)
+- Scan for unsupported operations (Checks 23-27)
+- Scan for performance anti-patterns (Checks 37-42)
+- Check all output tables for data compatibility (resource 17)
+
+Produce the structured assessment report with every finding, organized by severity (CRITICAL, HIGH, MEDIUM, LOW).
+
+### Step 2: Present Findings for Review
+
+Present the findings in a clear table:
+
+```
+ASSESSMENT: <job_name> (<job_id>)
+Path: A (Scala 13.3 to Scala 16.4)
+
+CRITICAL (will break on 16.4):
+  [ ] C1: Cell 5, Line 12 - CAST(claim_date AS TIMESTAMP) on dirty data -> TRY_CAST
+  [ ] C2: Cell 8, Line 3  - spark.sql.ansi.enabled = false -> remove, fix code
+  [ ] C3: Cell 12, Line 7 - billed_amount / line_count -> TRY_DIVIDE (zero divisor)
+  ...
+
+HIGH (likely to break):
+  [ ] H1: Cell 3, Line 1  - spark.databricks.delta.retentionDurationCheck.enabled -> remove
+  [ ] H2: Cell 15, Line 4 - .cache() -> remove
+  ...
+
+MEDIUM (may cause issues):
+  [ ] M1: Cell 20, Line 9 - SELECT * -> use explicit column list
+  ...
+
+LOW (performance/informational):
+  [ ] L1: Cell 10, Line 5 - .count() > 0 -> .first() is not None
+  ...
+
+TABLE FINDINGS:
+  claims_bronze: LOW risk
+  claims_silver: MEDIUM risk (BOOLEAN columns)
+  claims_gold_summary: LOW risk
+
+Which findings do you want me to apply? Options:
+  - "all" - apply everything
+  - "critical and high" - apply CRITICAL + HIGH only
+  - "critical only" - apply only CRITICAL
+  - List specific IDs: "C1, C2, C3, H1, H2, M1"
+  - "all except L1, M1" - apply everything except specific items
+```
+
+Wait for my response before proceeding.
+
+### Step 3: Record Baseline
+
+Before making any changes, record the current Delta table versions for all output tables:
+
 ```sql
 DESCRIBE HISTORY <schema>.<table> LIMIT 1;
 ```
 
-Save the version numbers — these are the baseline.
+Save the version numbers for time travel comparison later.
 
-## Step 2: Copy the Pipeline
+### Step 4: Create Staging Copies
 
-Create copies of all Scala notebooks in the pipeline into a new folder (e.g., append `_16_4` to the folder name). Do NOT modify the originals.
+Create copies of all Scala notebooks in the pipeline into a staging folder:
+`/Workspace/Migration/staging/<job_name>/`
 
-## Step 3: Upgrade to DBR 16.4
+Do NOT modify the originals.
 
-Apply the `dbr_upgrade` skill to every copied notebook. Key changes:
+### Step 5: Apply Approved Changes
 
-1. **ANSI compliance:** Do NOT set `spark.sql.ansi.enabled = false`. Instead, scan all notebooks for ANSI-sensitive patterns (casts, division, array/map access, integer overflow) and fix them using the ANSI Compliance Fixes section of the skill. Use `TRY_CAST`, `TRY_DIVIDE`, null guards, and type widening as appropriate.
-2. **Remove deprecated configs** that no longer exist in 16.4
-3. **Check for any APIs or behaviors** flagged in the skill that apply to this code
-4. **Do NOT change the language** — keep everything in Scala
-5. **Do NOT refactor or optimize** — make only the changes required for 16.4 compatibility
+Apply ONLY the changes I approved in Step 2. For each approved change:
 
-## Step 4: Run the Upgraded Pipeline
+1. Navigate to the exact cell/line in the staging copy
+2. Apply the fix from the assessment report
+3. Log what was changed
 
-Run the upgraded notebooks on a DBR 16.4 LTS cluster. The output will overwrite the same tables that the original pipeline wrote to.
+Key rules:
+- **Do NOT set spark.sql.ansi.enabled = false.** Fix the code with ANSI-safe patterns instead.
+- **Do NOT change the language** - keep everything in Scala
+- **Do NOT refactor or optimize** beyond what was approved
+- Reference `resources/07-ansi-compliance-reference.md` for ANSI fix patterns
+- Reference `resources/01-scala-13.3-to-scala-16.4.md` for DBR upgrade patterns
+- Reference `skills/dbr_upgrade/skill.md` for the upgrade workflow
 
-## Step 5: Validate Using Time Travel
+### Step 6: Generate Change Manifest
 
-Apply the `conversion_validator` skill in **time travel mode**.
+Produce the change manifest showing exactly what was changed:
 
-For each table:
-1. Load the **baseline version** (from Step 1) using `VERSION AS OF <baseline_version>`
-2. Load the **current version** (written by the upgraded pipeline)
-3. Run ALL validation checks including the full date/timestamp deep validation:
-   - Schema comparison
-   - Row count comparison
-   - Null count comparison
-   - Aggregate statistics comparison
-   - Distinct value comparison
-   - Row-by-row data comparison
-   - Date and timestamp deep validation:
-     - 7a: Identify all date/timestamp columns (including string dates)
-     - 7b: Value-by-value date comparison
-     - 7c: Timezone offset detection (dates off by exactly 1 day, timestamps off by hours)
-     - 7d: Null vs epoch zero confusion (null ↔ 1970-01-01)
-     - 7e: Date boundary cases (leap year, month-end, year rollover)
-     - 7f: Date type comparison (DATE vs TIMESTAMP in Delta schema)
-     - 7g: String date format comparison for bronze-layer columns
+```
+CHANGE MANIFEST: <job_name>
+Applied: <count> of <total> findings
 
-Exclude metadata columns: `_ingestion_timestamp`, `_transform_timestamp`, `_source_file`, `_row_hash`
+Notebook: <name>
+  Cell <N>, Line <N>:
+    BEFORE: <exact original code>
+    AFTER:  <exact new code>
+    Reason: <finding ID> - <description>
+    Status: APPLIED
 
-## Step 6: Generate Conversion Report
+  Cell <N>, Line <N>:
+    Reason: <finding ID> - <description>
+    Status: SKIPPED (not approved)
+```
 
-Apply the `conversion_report` skill.
+### Step 7: Run and Validate
 
-Read every notebook in the **original Scala 13.3 pipeline** and every notebook in the **Scala 16.4 upgraded pipeline**. Compare them cell-by-cell and generate a report with:
+Run the upgraded notebooks on a DBR 16.4 LTS cluster. Then apply the `conversion_validator` skill in time travel mode:
 
-1. **Executive summary** — total changes, breakdown by category (syntax, API, ANSI, runtime, UDF, behavioral), risk assessment
-2. **Notebook-by-notebook diff** — every change with: location, category, original code, converted code, reason, risk level, behavioral impact
-3. **ANSI compliance audit** — every ANSI-sensitive pattern found and how it was fixed (TRY_CAST, TRY_DIVIDE, null guards, type widening)
-4. **UDF conversion detail** — side-by-side comparison of every UDF with null handling analysis (if any UDFs were modified)
-5. **Date/timestamp conversion detail** — every date operation analyzed for timezone, format, and precision differences. Cross-reference with validation results from Step 5 Check 7.
-6. **Risk summary** — all changes ranked by risk (High, Medium, Low, None)
+For each output table:
+1. Load the baseline version (from Step 3) using VERSION AS OF
+2. Load the current version (written by the upgraded pipeline)
+3. Run ALL validation checks (1-14 from conversion_validator skill)
 
-Output the report as a notebook in the same folder as the upgraded pipeline.
+### Step 8: Generate Conversion Report
 
-## Step 7: Print Summary
+Apply the `conversion_report` skill. Compare original vs upgraded notebooks and generate:
+1. Executive summary with change counts by category
+2. Notebook-by-notebook diff with every change documented
+3. ANSI compliance audit
+4. Risk summary ranked by severity
+5. Validation results cross-referenced with code changes
+
+### Step 9: Print Summary
 
 Print:
+- Which findings were applied vs skipped
 - Validation results (pass/fail per table per check)
 - Conversion report executive summary
-- Risk summary (high-risk changes only)
-- Any validation failures correlated with specific code changes from the report
+- Any validation failures correlated with specific code changes
+
+## Mode B: Apply from Existing Report
+
+I will provide:
+- The job ID
+- A list of finding IDs to apply (e.g., "C1, C2, C3, H1, H2")
+- Or a category to apply (e.g., "all critical and high")
+
+Skip the assessment (Step 1-2) and go directly to:
+1. Record baseline (Step 3)
+2. Create staging copies (Step 4)
+3. Apply the specified changes (Step 5)
+4. Generate change manifest (Step 6)
+5. Run and validate (Step 7)
+6. Generate report (Step 8)
+7. Print summary (Step 9)
+
+For each finding ID, look up the specific change from the assessment resource patterns:
+- ANSI fixes: resources/07-ansi-compliance-reference.md
+- Config changes: resources/05-spark-config-classic-to-serverless.md
+- Breaking changes: resources/15-breaking-changes-13-to-16-regex.md
+- Known issues: resources/13-serverless-known-issues.md
+
+## Cross-References
+
+- DBR upgrade skill: skills/dbr_upgrade/skill.md
+- Conversion validator: skills/conversion_validator/skill.md
+- Conversion report: skills/conversion_report/skill.md
+- Scala 13.3 to 16.4 guide: resources/01-scala-13.3-to-scala-16.4.md
+- ANSI compliance: resources/07-ansi-compliance-reference.md
+- Breaking changes regex: resources/15-breaking-changes-13-to-16-regex.md
+- Comprehensive assessment: resources/19-comprehensive-job-assessment.md
