@@ -2,6 +2,52 @@
 
 Self-contained skill for evaluating a Databricks job's readiness for serverless migration. Everything needed to run a complete assessment is in this file. Fix code examples are in companion skills (ansi_fixes, dbr_upgrade, etc.) -- this skill detects and reports only.
 
+## How to Use This Skill
+
+When a user says "assess this job" or "assess job <job_id>", follow these steps in order:
+
+**Step 1: Extract Job Configuration**
+Pull the job config via the Jobs API. Extract: DBR version, language, cluster spec, init scripts, libraries, Spark configs, task definitions, notebook paths, and all %run dependencies. Classify the job (see Section 2).
+
+**Step 2: Eligibility Screening**
+Run the hard blockers and soft blockers from Section 4. If any hard blocker is found, flag it immediately and recommend whether to use a different path or stay on classic compute.
+
+**Step 3: Code-Level Audit**
+For each notebook referenced by the job, scan for ALL patterns in Section 5. Organize findings by severity (CRITICAL, HIGH, MEDIUM, LOW). For each finding, record: check ID, notebook name, cell/line number, the specific code found, the recommended fix, and whether it's a Databricks-side or repo-side change.
+
+**Step 4: Data Compatibility Check**
+For each output table written by the job: check table type (managed vs external), Delta protocol version, row tracking status, sample datetime columns for invalid values, check BOOLEAN columns, check file layout. Produce a risk rating per table.
+
+**Step 5: Produce Change Manifest**
+For each finding that requires a code change, produce:
+```
+Notebook: <notebook_path>
+Cell <N>, Line <N>:
+  BEFORE: <exact current code>
+  AFTER:  <exact replacement code>
+  Reason: <check ID> - <description>
+```
+
+**Step 6: Produce Assessment Report**
+Output the structured report (see Section 6 for template). Include finding counts by severity, table findings, effort estimate, and the change manifest.
+
+**Step 7: Batch Summary (if multiple jobs)**
+If assessing multiple jobs, produce an aggregate summary with path distribution, finding distribution, most common issues, and effort breakdown.
+
+**IMPORTANT RULES:**
+- Do NOT flag abfss:// paths as non-Unity Catalog. ADLS paths registered in UC are valid.
+- Do NOT flag 2-part table names after USE CATALOG as non-UC.
+- Do NOT recommend `spark.sql.ansi.enabled = false`. Always recommend ANSI-safe code fixes.
+- Do NOT recommend non-GA features (VACUUM LITE, serverless JAR tasks).
+
+## Input
+
+You will receive either:
+- A single job ID, OR
+- A list of job IDs with prescribed migration paths (a manifest)
+
+If a job ID is provided without a path, recommend the best path based on analysis.
+
 ---
 
 ## 1. Overview

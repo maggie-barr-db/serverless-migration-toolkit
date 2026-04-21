@@ -14,7 +14,7 @@ I need to migrate a Databricks job. I will provide the job ID, the migration pat
   - "critical only" - apply only CRITICAL
   - Specific finding IDs: "C1, C2, C3, H1, H2"
   - "all except X, Y" - apply everything except specific items
-- **Assessment report** (optional): I may paste or reference a previously generated assessment report. If not provided, run the assessment first using resource 19 (comprehensive-job-assessment.md).
+- **Assessment report** (optional): I may paste or reference a previously generated assessment report. If not provided, run the assessment first using assessment skill.
 
 ## Step 1: Confirm Inputs
 
@@ -48,9 +48,9 @@ Route to the correct migration workflow based on the path:
 ### If Path A (Scala to Scala 16.4):
 
 Apply only approved changes. Key references:
-- Skill: `skills/dbr_upgrade/skill.md`
-- Resource: `resources/01-scala-13.3-to-scala-16.4.md`
-- ANSI patterns: `resources/07-ansi-compliance-reference.md`
+- Skill: `dbr_upgrade skill`
+- Resource: `dbr_upgrade skill`
+- ANSI patterns: `ansi_fixes skill`
 
 Changes to apply (if approved):
 1. ANSI compliance fixes (TRY_CAST, TRY_DIVIDE, IS TRUE, try_to_timestamp, bounds checks)
@@ -65,19 +65,19 @@ Changes to apply (if approved):
 Apply in this order - language conversion first, then DBR fixes, then serverless fixes:
 
 **Phase 1: Language Conversion**
-- Skill: `skills/scala_to_pyspark/skill.md`
-- Resource: `resources/02-scala-13.3-to-pyspark-serverless.md`
+- Skill: `scala_to_pyspark skill`
+- Resource: `scala_to_pyspark + serverless_migration skills`
 - Convert all Scala syntax to PySpark ($"col" to F.col(), case classes to StructType, UDFs, pattern matching, Option/Try, etc.)
 - Follow every rule in the scala_to_pyspark conversion checklist
 
 **Phase 2: ANSI/DBR Fixes**
-- Skill: `skills/dbr_upgrade/skill.md`
-- Resource: `resources/07-ansi-compliance-reference.md`
+- Skill: `dbr_upgrade skill`
+- Resource: `ansi_fixes skill`
 - Apply ANSI-safe fixes to the PySpark code
 
 **Phase 3: Serverless Fixes**
-- Resource: `resources/03-pyspark-sql-13.3-to-pyspark-sql-serverless.md` (use serverless sections)
-- Resource: `resources/05-spark-config-classic-to-serverless.md`
+- Resource: `serverless_migration skill` (use serverless sections)
+- Resource: `serverless_migration skill`
 - Remove unsupported operations (.persist, REFRESH TABLE, MSCK REPAIR, global temp views)
 - Remove unsupported Spark configs
 - Replace os.environ.get() with dbutils.widgets.get()
@@ -87,9 +87,9 @@ Apply in this order - language conversion first, then DBR fixes, then serverless
 ### If Path C (PySpark/SQL to Serverless):
 
 Apply DBR fixes and serverless fixes together:
-- Resource: `resources/03-pyspark-sql-13.3-to-pyspark-sql-serverless.md`
-- Resource: `resources/07-ansi-compliance-reference.md`
-- Resource: `resources/05-spark-config-classic-to-serverless.md`
+- Resource: `serverless_migration skill`
+- Resource: `ansi_fixes skill`
+- Resource: `serverless_migration skill`
 
 Changes to apply (if approved):
 1. ANSI compliance fixes
@@ -106,7 +106,7 @@ Changes to apply (if approved):
 ### If Path D (SQL to DBSQL):
 
 Convert notebook format:
-- Resource: `resources/04-sql-to-dbsql-serverless.md`
+- Resource: `sql_to_dbsql skill`
 
 Changes to apply:
 1. Extract SQL from spark.sql() calls into direct SQL cells
@@ -143,14 +143,14 @@ Run the migrated pipeline:
 - Path B/C: Run on serverless compute
 - Path D: Run on a DBSQL Serverless warehouse
 
-Then apply the `conversion_validator` skill (skills/conversion_validator/skill.md):
+Then apply the `conversion_validator` skill (conversion_validator skill):
 - Compare output tables against baseline versions (time travel)
 - Run all applicable validation checks (1-14, plus 15-18 for serverless paths)
 - Flag any data differences
 
 ## Step 7: Generate Report
 
-Apply the `conversion_report` skill (skills/conversion_report/skill.md):
+Apply the `conversion_report` skill (conversion_report skill):
 1. Executive summary with change counts
 2. Notebook-by-notebook diff
 3. ANSI compliance audit
@@ -180,26 +180,16 @@ Validation Failures (if any):
 
 Next Steps:
   - Review change manifest
-  - Apply changes to repo source files (for serverless paths: update job JSON per resources/16-cicd-change-guide.md)
+  - Apply changes to repo source files (for serverless paths: update job JSON per the CI/CD change guide (resources/16))
   - CI/CD deploy to UAT for round-trip validation
 ```
 
-## Cross-References
+## Companion Skills
 
-Skills:
-- DBR upgrade: skills/dbr_upgrade/skill.md
-- Scala to PySpark: skills/scala_to_pyspark/skill.md
-- Conversion validator: skills/conversion_validator/skill.md
-- Conversion report: skills/conversion_report/skill.md
+Load these alongside this skill based on the migration path:
 
-Resources:
-- Path A guide: resources/01-scala-13.3-to-scala-16.4.md
-- Path B guide: resources/02-scala-13.3-to-pyspark-serverless.md
-- Path C guide: resources/03-pyspark-sql-13.3-to-pyspark-sql-serverless.md
-- Path D guide: resources/04-sql-to-dbsql-serverless.md
-- Spark configs: resources/05-spark-config-classic-to-serverless.md
-- ANSI compliance: resources/07-ansi-compliance-reference.md
-- Testing framework: resources/08-testing-validation-framework.md
-- Known issues: resources/13-serverless-known-issues.md
-- CI/CD guide: resources/16-cicd-change-guide.md
-- Assessment: resources/19-comprehensive-job-assessment.md
+**All paths:** ansi_fixes.md, conversion_validator.md, conversion_report.md, known_issues.md
+**Path A:** + dbr_upgrade.md
+**Path B:** + dbr_upgrade.md, scala_to_pyspark.md, serverless_migration.md
+**Path C:** + dbr_upgrade.md, serverless_migration.md
+**Path D:** + sql_to_dbsql.md

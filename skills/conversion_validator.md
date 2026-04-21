@@ -2,6 +2,48 @@
 
 This skill provides a complete 18-check validation framework for verifying that converted code (Scala to PySpark, DBR 13.3 to 16.4, classic to serverless, or any combination) produces output identical to the original pipeline. All validation code is inline and self-contained.
 
+## How to Use This Skill
+
+When a user says "validate this migration" or "run validation", follow these steps:
+
+**Input needed:**
+- Job name and job ID
+- Migration path (A, B, C, or D)
+- Baseline table versions OR catalog to compare against
+- Run ID of the migrated job (for serverless checks, Paths B/C)
+
+**Step 1: Setup**
+For each output table, load the original (baseline) and migrated DataFrames using the appropriate comparison mode (cross-catalog or time travel - see below). Identify primary keys, exclude metadata columns, classify columns by type.
+
+**Step 2: Run ALL applicable checks (1-14 for all paths, 15-18 for serverless paths)**
+Run them in order. Earlier checks are fast; later checks provide diagnostic detail.
+
+**Step 3: Produce validation report**
+```
+MIGRATION VALIDATION REPORT
+Job: <job_name> (<job_id>)
+Path: <path>
+Mode: <cross-catalog / time-travel>
+
+TABLES VALIDATED: <n>/<total>
+CHECK RESULTS:
+  Structural:  <pass>/<total> PASS/FAIL
+  Statistical: <pass>/<total> PASS/FAIL
+  Row-Level:   <pass>/<total> PASS/FAIL
+  Semantic:    <pass>/<total> PASS/FAIL
+  Edge Cases:  <pass>/<total> PASS/FAIL
+  Serverless:  <pass>/<total> PASS/FAIL (if applicable)
+
+OVERALL: PASS / FAIL
+FAILURES: <details with root cause analysis>
+RECOMMENDATION: Approved / Needs Fixes / Needs Investigation
+```
+
+**Step 4: If FAIL, diagnose**
+Cross-reference failures with the change manifest. Use the failure diagnosis patterns at the bottom of this skill to identify the root cause.
+
+---
+
 ## Validation Approach
 
 Run all checks in order for every table pair. Earlier checks are fast and narrow; later checks are thorough and expensive. If an earlier check fails, later checks provide the detail needed to diagnose the root cause.
