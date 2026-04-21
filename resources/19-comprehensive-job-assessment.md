@@ -84,20 +84,89 @@ Pull the job configuration using the Databricks Jobs API (`GET /api/2.1/jobs/get
 | Streaming | Yes / No | `readStream`, `writeStream`, `.trigger(` in code |
 | GPU | Yes / No | `cuda`, `cudf`, `cuml`, GPU node types in cluster spec |
 
+**Scala complexity analysis (for Scala notebooks only):**
+
+When a notebook is Scala, scan for these patterns to classify it as Heavy Scala or Light Scala (SQL wrapper):
+
+Heavy Scala indicators (each one found adds to the complexity score):
+- `case class` definitions (typed Datasets)
+- `.as[CaseClass]` typed Dataset conversions
+- `udf(` UDF definitions
+- `Option(`, `Some(`, `.getOrElse`, `.orElse` (Option types)
+- `match {` or `case Some(` or `case None` (pattern matching)
+- `Try {` or `Success(` or `Failure(` (Try/Success/Failure)
+- `typedLit(Map(` (typed literal maps)
+- `BigDecimal` or `RoundingMode` (precision arithmetic)
+- `SimpleDateFormat` (date parsing in UDFs)
+- `implicit val` (implicit encoders)
+- `.map(`, `.filter(`, `.flatMap(`, `.foreach(` on Scala collections (not DataFrames)
+- `import scala.` (Scala-specific imports beyond basic)
+- `var ` declarations with type annotations
+
+Light Scala / SQL wrapper indicators:
+- Cells are mostly `spark.sql("...")` calls
+- Minimal DataFrame operations (just `spark.read` / `df.write`)
+- No UDFs
+- No case classes
+- No pattern matching
+- No Option/Try types
+- Business logic lives in SQL strings, not Scala code
+
+Classification:
+- 0 heavy indicators = **Light Scala (SQL wrapper)** - easy conversion to PySpark or even Path D
+- 1-3 heavy indicators = **Moderate Scala** - conversion feasible but needs careful UDF translation
+- 4+ heavy indicators = **Heavy Scala** - significant conversion effort, consider Path A unless serverless is required
+
 **Auto-recommend migration path:**
 
 ```
-IF language = Scala AND no PySpark conversion planned:
-    RECOMMEND Path A (Scala 16.4)
-ELIF language = Scala AND PySpark conversion planned:
-    RECOMMEND Path B (Scala to PySpark Serverless)
+IF language = Scala:
+    Compute scala_complexity_score (count of heavy indicators above)
+
+    IF scala_complexity_score = 0 (Light Scala / SQL wrapper):
+        IF all business logic is in spark.sql() strings:
+            RECOMMEND Path D (DBSQL Serverless) -- trivial conversion, just extract SQL
+            ALSO OFFER Path B (Scala to PySpark Serverless) -- if they need PySpark features
+        ELSE:
+            RECOMMEND Path B (Scala to PySpark Serverless) -- light conversion
+    ELIF scala_complexity_score <= 3 (Moderate Scala):
+        RECOMMEND Path B (Scala to PySpark Serverless) -- feasible conversion
+        ALSO OFFER Path A (Scala 16.4) -- if conversion effort is a concern
+    ELSE (Heavy Scala, 4+ indicators):
+        RECOMMEND Path A (Scala 16.4) -- stay Scala, upgrade DBR only
+        ALSO OFFER Path B -- but flag as HIGH effort with specific complexity details
+
 ELIF language IN (Python, SQL, Mixed Python/SQL):
     IF all_cells_are_sql AND no_pyspark_logic:
         RECOMMEND Path D (DBSQL Serverless)
     ELSE:
         RECOMMEND Path C (PySpark/SQL Serverless)
+
 ELIF language = R:
     RECOMMEND: INELIGIBLE -- R not supported on serverless. Stay on classic.
+```
+
+When recommending, include the complexity analysis:
+```
+SCALA COMPLEXITY ANALYSIS:
+  Heavy indicators found: <count>
+    - case class definitions: <count> (e.g., ClaimRecord, EnrichedClaim)
+    - UDF definitions: <count>
+    - Option/Some/None usage: <count> occurrences
+    - Pattern matching: <count> match blocks
+    - BigDecimal/RoundingMode: <count> occurrences
+    - SimpleDateFormat in UDFs: <count>
+    - Typed Dataset .as[T]: <count>
+  
+  Light indicators:
+    - spark.sql() calls: <count>
+    - DataFrame read/write only: <yes/no>
+    - SQL magic cells (%sql): <count>
+
+  Classification: <Light / Moderate / Heavy> Scala
+  
+  RECOMMENDED PATH: <Path A / B / D> -- <justification>
+  ALTERNATIVE PATH: <Path X> -- <when this would be better>
 ```
 
 If the recommended path differs from the prescribed path, include justification in the report.
